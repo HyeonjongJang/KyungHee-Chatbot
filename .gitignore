@@ -1,0 +1,12 @@
+*.ipynb
+.streamlit
+.env
+past_documents/
+todo_documents/
+__pycache__
+backup/
+mp3/
+past/
+student_profile/
+docs/
+traces/
