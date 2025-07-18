@@ -1,68 +1,76 @@
-Kyung Hee University Regulations Search Virtual Assistant
-Overview
-This Virtual Assistant provides answers based on the latest regulations, internal rules, and guidelines from Kyung Hee University’s Regulation Management System.
+# Kyung Hee University Regulations Search Virtual Assistant
 
-Reference: Kyung Hee University Regulation Management System
+## Overview
 
-Note:
-This tool is exclusively for searching regulations of Kyung Hee University. For official information like academic schedules or graduation requirements, please always consult official documents or contact the university administration.
+This Virtual Assistant delivers answers based on the latest regulations and internal guidelines from Kyung Hee University’s Regulation Management System.
 
-Installation & Usage
-1. Environment Setup
-bash
+> **Reference:**  
+> [Kyung Hee University Regulation Management System](https://rule.khu.ac.kr/lmxsrv/main/main.do)
+
+**Note:**  
+This tool is exclusively for Kyung Hee University regulation searches. For official matters like academic schedules or graduation requirements, always consult original documents or directly contact university administration.
+
+---
+
+## Installation & Usage
+
+### 1. Environment Setup
+
 conda create -n langchain python=3.11
 conda activate langchain
 pip install -r requirements.txt
-2. Build the Vector Database
-Create two folders: past_documents and todo_documents.
 
-Place regulation-related materials (.pdf, .ipynb, .txt) into todo_documents.
+### 2. Build the Vector Database
 
-To support more file formats, modify load_documents_process_vectorize() in add_document.py.
+- Create two folders: `past_documents` and `todo_documents`.
+- Put regulation-related files (`.pdf`, `.ipynb`, `.txt`) into `todo_documents`.
+- *To add more file types, edit the `load_documents_process_vectorize()` function in `add_document.py`.*
+- Run `add_document.py` to build the vector database.
+  - This creates `index.faiss` and `index.pkl` in the `faiss_db` directory.
+- Processed files are automatically moved to `past_documents`.
+- If a database already exists, previous files are backed up in the `backup/` folder.
 
-Run add_document.py to build the vector database.
+### 3. System Prompt & Interface Customization
 
-This will generate index.faiss and index.pkl in the faiss_db directory.
+- Main prompt: `chains.py` (customize as needed).
+- ID authentication: `first_page.py` (prevents unauthorized access).
+- Adjust the welcome and instruction pages as needed.
 
-Processed files will be moved automatically to past_documents.
+### 4. Streamlit Secret Configuration
 
-If the database exists, previous files are backed up in the backup/ folder.
+1. Make a `.streamlit` directory.
+2. Add a `secrets.toml` file, for example:
 
-3. System Prompt & Interface Customization
-The main prompt is set in chains.py. Adapt it to match your institution’s requirements.
-
-ID authentication is handled in first_page.py to prevent unauthorized access.
-
-Adjust the welcome and instruction page as needed.
-
-4. Streamlit Secret Configuration
-Create a .streamlit directory.
-
-Add a secrets.toml file:
-
-text
 LANGCHAIN_API_KEY = "your_langchain_api_key"
 OPENAI_API_KEY = "your_openai_api_key"
 student_ids = ["member1", "member2"]
-5. Local Testing
-bash
+
+### 5. Local Testing
+
 streamlit run main.py
-6. Deployment
-Upload to Streamlit Cloud.
 
-Add the needed secret keys in the deployment setting’s Secrets UI.
+### 6. Deployment
 
-Usage Notice & Guidelines
-For regulation search only: Using this Assistant for any other purpose is not allowed.
+- Upload to Streamlit Cloud.
+- Register the secret keys in the Secrets UI in deployment settings.
 
-There is a rate limit on GPT-4 usage. Use responsibly so everyone has fair access.
+---
 
-Accounts with abnormal or unauthorized usage may have access revoked.
+## Usage Notice & Guidelines
 
-Conversations may be stored and used for research; your member ID will be thoroughly anonymized.
+- **Use only for regulation searches at Kyung Hee University. Do not use for other purposes.**
+- There is a rate limit on GPT-4 use. Please be considerate to enable fair sharing.
+- Accounts with abnormal or unauthorized usage may be restricted.
+- Conversations may be stored for research, but IDs are anonymized.
+  - **Do not enter personal identifiable information.**
+- Responses may not always be fully accurate. Always double-check important details via official sources or the administration office.
+- Using this Assistant means you agree to these terms.
 
-Do not enter any personal identifiable information.
+---
 
-Answers may not always be accurate. For important matters, always check official sources or contact the administration office.
+## Contact
 
-By using this Assistant, you agree to these terms and conditions.
+Questions? Contact:
+
+- HYUNJONG JANG
+- 📧 lezelamu@naver.com
