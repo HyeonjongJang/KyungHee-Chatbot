@@ -45,7 +45,7 @@ pip install -r requirements.txt
 
 ### 4. First Page Customization
 
-- The first interface (`first_page.py`) includes a student ID verification step.
+- The first interface (`first_page.py`) includes a member ID verification step.
 - This prevents unauthorized users from accessing the assistant via public links (e.g., Streamlit Cloud).
 - Only users with IDs matching the internal list can proceed to the chatbot.
 - You can customize the content and instructions shown on this page for your class.
@@ -53,12 +53,12 @@ pip install -r requirements.txt
 ### 5. Streamlit Secret Configuration
 
 - Create a `.streamlit` directory and add a file named `secrets.toml`.
-- Inside `secrets.toml`, insert the following (with your own keys and student list):
+- Inside `secrets.toml`, insert the following (with your own keys and member list):
 
 ```toml
 LANGCHAIN_API_KEY = "your_langchain_api_key"
 OPENAI_API_KEY = "your_openai_api_key"
-student_ids = ["student1", "student2"]
+student_ids = ["member1", "member2"]
 ```
 
 ### 6. Local Testing
