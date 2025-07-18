@@ -68,9 +68,9 @@ streamlit run main.py
 
 ---
 
-## Contact
+## 📬 Contact
 
-Questions? Contact:
+For any inquiries, please contact:
 
-- HYUNJONG JANG
+- **HYUNJONG JANG**
 - 📧 lezelamu@naver.com
