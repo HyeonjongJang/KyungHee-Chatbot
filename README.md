@@ -1,41 +1,44 @@
 Kyung Hee University Regulations Search Virtual Assistant
-🧾 Overview
-This Virtual Assistant provides answers based on the most up-to-date datasets of regulations, internal rules, and guidelines from Kyung Hee University's Regulation Management System.
+Overview
+This Virtual Assistant provides answers based on the latest regulations, internal rules, and guidelines from Kyung Hee University’s Regulation Management System.
 
 Reference: Kyung Hee University Regulation Management System
 
-This tool is provided exclusively for regulation search within Kyung Hee University. For important information such as academic schedules or graduation requirements, always verify with official documents or by contacting the university administration office.
+Note:
+This tool is exclusively for searching regulations of Kyung Hee University. For official information like academic schedules or graduation requirements, please always consult official documents or contact the university administration.
 
-⚙️ Installation & Usage
+Installation & Usage
 1. Environment Setup
 bash
 conda create -n langchain python=3.11
 conda activate langchain
 pip install -r requirements.txt
-2. Building the Vector Database
+2. Build the Vector Database
 Create two folders: past_documents and todo_documents.
 
-Place regulation-related materials (.pdf, .ipynb, .txt) in todo_documents.
+Place regulation-related materials (.pdf, .ipynb, .txt) into todo_documents.
 
-Adding more file formats: Edit the load_documents_process_vectorize() function in add_document.py.
+To support more file formats, modify load_documents_process_vectorize() in add_document.py.
 
 Run add_document.py to build the vector database.
 
-The index.faiss and index.pkl files will be created in the faiss_db directory.
+This will generate index.faiss and index.pkl in the faiss_db directory.
 
-Files are automatically moved to past_documents after processing.
+Processed files will be moved automatically to past_documents.
 
-If a database already exists, previous files are backed up in the backup/ folder with the current timestamp.
+If the database exists, previous files are backed up in the backup/ folder.
 
 3. System Prompt & Interface Customization
-The base system prompt is defined in chains.py. Adapt this to suit your institution’s policies if necessary.
+The main prompt is set in chains.py. Adapt it to match your institution’s requirements.
 
-User (student/member) ID authentication is implemented in first_page.py to prevent unauthorized access via public links.
+ID authentication is handled in first_page.py to prevent unauthorized access.
 
-You may customize the welcome and instructions page to match the notice below.
+Adjust the welcome and instruction page as needed.
 
 4. Streamlit Secret Configuration
-Create a .streamlit directory and a file named secrets.toml as below:
+Create a .streamlit directory.
+
+Add a secrets.toml file:
 
 text
 LANGCHAIN_API_KEY = "your_langchain_api_key"
@@ -45,31 +48,21 @@ student_ids = ["member1", "member2"]
 bash
 streamlit run main.py
 6. Deployment
-Upload the repository to Streamlit Cloud.
+Upload to Streamlit Cloud.
 
-Use the Secrets configuration UI in deployment settings to add the required keys as above.
+Add the needed secret keys in the deployment setting’s Secrets UI.
 
-🛑 Usage Notice & Important Guidelines
-This Assistant is strictly for Kyung Hee University regulations search.
-Use for any other purpose is prohibited.
+Usage Notice & Guidelines
+For regulation search only: Using this Assistant for any other purpose is not allowed.
 
-There is a rate limit on GPT-4 usage. Please be considerate to ensure all users have fair access.
+There is a rate limit on GPT-4 usage. Use responsibly so everyone has fair access.
 
-Accounts found to be using this tool for non-regulation purposes or with abnormal usage patterns may have access revoked.
+Accounts with abnormal or unauthorized usage may have access revoked.
 
-Conversations with the Assistant will be stored and used for research purposes; however, your member ID will be thoroughly anonymized.
-Do not include any personally identifiable information (PII) in your conversations.
+Conversations may be stored and used for research; your member ID will be thoroughly anonymized.
 
-The model may occasionally provide inaccurate answers. For critical university rules or policies (e.g., academic schedule, graduation requirements), please confirm through official sources or directly contact the administration office.
+Do not enter any personal identifiable information.
+
+Answers may not always be accurate. For important matters, always check official sources or contact the administration office.
 
 By using this Assistant, you agree to these terms and conditions.
-
-📬 Contact
-For any inquiries, please contact:
-
-HYUNJONG JANG
-
-📧 lezelamu@naver.com
-
-Reference
-Kyung Hee University Regulation Management System: https://rule.khu.ac.kr/lmxsrv/main/main.do
