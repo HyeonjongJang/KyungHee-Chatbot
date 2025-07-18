@@ -40,5 +40,3 @@ def first_page():
         else:
             st.error("You must agree to the terms and conditions before proceeding.")
 
-구성원
-
