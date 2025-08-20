@@ -2,7 +2,7 @@ import os
 from langsmith import Client
 
 # 발급받은 LangSmith API 키를 환경 변수에 저장하거나 직접 입력합니다
-os.environ["LANGSMITH_API_KEY"] = "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"
+os.environ["LANGSMITH_API_KEY"] = ""
 
 try:
     client = Client()
