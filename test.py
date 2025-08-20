@@ -1,16 +1,15 @@
 import os
-from dotenv import load_dotenv
+from langsmith import Client
 
-# .env 파일에서 환경변수 로드
-load_dotenv()
-
-api_key = os.getenv("OPENAI_API_KEY")  # 환경 변수명만 입력!
-print("OpenAI API Key:", api_key[:8] + "..." if api_key else "Not found")
+# 발급받은 LangSmith API 키를 환경 변수에 저장하거나 직접 입력합니다
+os.environ["LANGSMITH_API_KEY"] = "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"
 
 try:
-    import openai
-    client = openai.OpenAI(api_key=api_key)
-    models = client.models.list()
-    print("OpenAI API 연결 성공! 사용 가능한 모델 수:", len(models.data))
+    client = Client()
+    # 간단한 접근 테스트. 프로젝트 리스트를 불러옵니다.
+    projects = client.list_projects()
+    print("API Key가 정상적으로 작동합니다.")
+    print("프로젝트 리스트:", list(projects))
 except Exception as e:
-    print("OpenAI API 연결 실패:", e)
+    print("API Key가 유효하지 않거나, 연결에 문제가 있습니다.")
+    print("오류 내용:", e)
