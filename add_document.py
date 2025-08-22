@@ -1,8 +1,5 @@
-# --- add_document.py (full, drop-in replacement) ---
-import os
-import re
-import shutil
-import datetime
+# add_document.py  (drop-in)
+import os, re, shutil, argparse, datetime, math   # ← math 추가
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -14,223 +11,174 @@ from langchain_community.vectorstores import FAISS
 
 from utils import load_docs_from_jsonl, save_docs_to_jsonl
 
-# 1) .env를 "파일 위치 기준"으로 확실히 로드 + 환경변수 덮어쓰기 허용
-HERE = Path(__file__).resolve().parent
-ENV_PATH = HERE / ".env"
-load_dotenv(dotenv_path=ENV_PATH, override=True)
+load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError(
-        "OPENAI_API_KEY가 설정되지 않았습니다. "
-        ".env 파일을 add_document.py와 같은 폴더에 두고,"
-        ' 내용은 OPENAI_API_KEY=sk-... (따옴표 없이) 형태로 작성하세요.'
-    )
+CATEGORIES = {
+    "regulations":       "규정",
+    "undergrad_rules":   "학부 시행세칙",
+    "grad_rules":        "대학원 시행세칙",
+    "academic_system":   "학사제도",
+}
 
-# 2) 임베딩 객체 생성 시 api_key를 명시 주입 (환경변수 인식 실패 대비)
-EMBED_MODEL_NAME = "text-embedding-3-large"
-EMBEDDINGS = OpenAIEmbeddings(model=EMBED_MODEL_NAME, api_key=OPENAI_API_KEY)
+BASE         = Path(".")
+FAISS_BASE   = BASE / "faiss_db"
+TODO_BASE    = BASE / "todo_documents"
+PAST_BASE    = BASE / "past_documents"
+DOCS_BASE    = BASE / "docs"
+BACKUP_BASE  = BASE / "backup"
 
-# -------------------------------------------------------------
+SUPPORTED_EXTS = {".pdf", ".txt", ".ipynb"}
 
-def _clean_pdf_text(text: str) -> str:
-    text = text.replace("\x0c", " ").replace("\n", " ")
-    text = re.sub(r"\s{2,}", " ", text)
-    return text.strip()
+def _load_file(path: Path):
+    if path.suffix.lower() == ".txt":
+        return TextLoader(str(path)).load()
+    if path.suffix.lower() == ".pdf":
+        docs = PDFMinerLoader(str(path)).load()
+        for d in docs:
+            d.page_content = d.page_content.replace("\x0c", " ").replace("\n", " ")
+            d.page_content = re.sub(r"\s{2,}", " ", d.page_content).strip()
+        return docs
+    if path.suffix.lower() == ".ipynb":
+        return NotebookLoader(str(path), include_outputs=False, remove_newline=True).load()
+    return []
 
-def _split_docs(docs) -> List:
+def _split_docs(docs):
     splitter = RecursiveCharacterTextSplitter(chunk_size=2048, chunk_overlap=256)
     return splitter.split_documents(docs)
 
-def process_and_vectorize_file(file_path: Path, embedding_model: OpenAIEmbeddings):
-    """파일 1개 로딩 → 청크화 → 메타데이터 보강 → 해당 파일의 FAISS 생성."""
-    file_path = Path(file_path)
-    suffix = file_path.suffix.lower()
+def _gather_files(todo_dir: Path) -> List[Path]:
+    if not todo_dir.exists():
+        return []
+    return [p for p in todo_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS]
 
-    # 문서 로딩
-    if suffix == ".txt":
-        loader = TextLoader(str(file_path))
-        docs = loader.load()
-    elif suffix == ".pdf":
-        loader = PDFMinerLoader(str(file_path))
-        docs = loader.load()
-        if docs:
-            docs[0].page_content = _clean_pdf_text(docs[0].page_content)
-    elif suffix == ".ipynb":
-        loader = NotebookLoader(str(file_path), include_outputs=False, remove_newline=True)
-        docs = loader.load()
-    else:
-        # 지원하지 않는 확장자
+# ▼ 신규: 배치로 안전하게 인덱스 생성
+def _build_index_in_batches(splits, emb, docs_per_batch: int = 32) -> Optional[FAISS]:
+    total = len(splits)
+    if total == 0:
+        return None
+    vs_local = None
+    num_batches = math.ceil(total / docs_per_batch)
+    for bi in range(num_batches):
+        start = bi * docs_per_batch
+        end   = min(start + docs_per_batch, total)
+        batch = splits[start:end]
+        print(f"   → 인덱스 배치 {bi+1}/{num_batches} (문서 {len(batch)}개)")
+        # 첫 배치는 from_documents, 이후는 add_documents
+        if vs_local is None:
+            vs_local = FAISS.from_documents(batch, embedding=emb)
+        else:
+            vs_local.add_documents(batch)
+    return vs_local
+
+def _process_category(category_slug: str) -> Tuple[list, Optional[FAISS]]:
+    # batch_size는 OpenAIEmbeddings 내부 병렬 묶음 크기 (크게 상관 없지만 안전 여유)
+    emb = OpenAIEmbeddings(model="text-embedding-3-large")
+
+    todo_dir = TODO_BASE / category_slug
+    past_dir = PAST_BASE / category_slug
+    past_dir.mkdir(parents=True, exist_ok=True)
+
+    files = _gather_files(todo_dir)
+    total = len(files)
+    if total == 0:
+        print(f"[{CATEGORIES[category_slug]}] 처리할 파일이 없습니다: {todo_dir}")
         return [], None
-
-    # 청크 분할
-    splits = _split_docs(docs)
-
-    # 메타데이터 보강 및 Source 프리픽스
-    fname = os.path.basename(str(file_path))
-    for d in splits:
-        d.page_content = f"Source : {fname}\n{d.page_content}"
-        d.metadata = d.metadata or {}
-        d.metadata["filename"] = fname     # ← UI에서 파일명 직접 사용
-        d.metadata.setdefault("source", str(file_path))  # 원본 경로(있으면 유지)
-
-    if not splits:
-        return [], None
-
-    # 해당 파일만으로 부분 벡터스토어 생성
-    vs = FAISS.from_documents(documents=splits, embedding=embedding_model)
-    return splits, vs
-
-def load_documents_process_vectorize(
-    todo_documents_path: Path,
-    past_documents_path: Path,
-    embedding_model: OpenAIEmbeddings,
-) -> Tuple[List, Optional[FAISS]]:
-    """todo_documents의 모든 파일을 임베딩하고 past_documents로 이동."""
-    todo_documents_path = Path(todo_documents_path)
-    past_documents_path = Path(past_documents_path)
-    past_documents_path.mkdir(parents=True, exist_ok=True)
-
-    file_list = [f for f in sorted(todo_documents_path.iterdir()) if f.is_file()]
-    total_files = len(file_list)
 
     all_splits = []
-    merged_vs: Optional[FAISS] = None
-
-    for idx, file_path in enumerate(file_list, 1):
-        print(f"[{idx}/{total_files}] 임베딩 중: {file_path.name} ...")
+    for idx, f in enumerate(sorted(files), 1):
+        print(f"[{idx}/{total}] 임베딩 중: {f.relative_to(todo_dir)}")
         try:
-            splits, vs = process_and_vectorize_file(file_path, embedding_model)
-            if splits and vs:
+            docs = _load_file(f)
+            if not docs:
+                print("   → 건너뜀(로더가 문서를 읽지 못함)")
+                shutil.move(str(f), str(past_dir / f.name))
+                continue
+            splits = _split_docs(docs)
+            for d in splits:
+                d.page_content = "Source : " + f.name + "\n" + d.page_content
+                meta = d.metadata or {}
+                meta["filename"] = f.name
+                meta["category"] = category_slug
+                d.metadata = meta
+            if not splits:
+                print("   → 건너뜀(분할 결과 없음)")
+            else:
                 print(f"   → 분할 청크 개수: {len(splits)}")
                 all_splits.extend(splits)
-                if merged_vs is None:
-                    merged_vs = vs
-                else:
-                    merged_vs.merge_from(vs)
-            else:
-                print("   → 건너뜀(분할 결과 없음 또는 임베딩 실패)")
         finally:
-            # 성공/실패와 관계없이 처리 완료 파일을 past_documents로 이동
-            dest = past_documents_path / file_path.name
-            dest.parent.mkdir(parents=True, exist_ok=True)
             try:
-                shutil.move(str(file_path), str(dest))
+                shutil.move(str(f), str(past_dir / f.name))
             except Exception as e:
-                print(f"   → 이동 실패(무시): {e}")
+                print(f"   → 이동 실패: {e}")
 
-    print("모든 파일 임베딩 완료.")
-    return all_splits, merged_vs
+    if not all_splits:
+        print(f"[{CATEGORIES[category_slug]}] 생성된 청크가 없습니다. 인덱스를 저장하지 않습니다.")
+        return [], None
 
-def save(
-    faiss_vectorstore_path: Path,
-    doc_path: Path,
-    backup_root: Path,
-    new_vectorstore: Optional[FAISS],
-    new_docs: List,
-    embedding_model: OpenAIEmbeddings,
-):
-    """기존 인덱스/문서와 병합 + 백업 후 저장."""
-    faiss_vectorstore_path = Path(faiss_vectorstore_path)
-    doc_path = Path(doc_path)
-    backup_root = Path(backup_root)
+    # ◆ 여기만 바뀜: 대량 한방 호출 → 안전한 배치 빌드
+    vs_new = _build_index_in_batches(all_splits, emb, docs_per_batch=32)
+    return all_splits, vs_new
 
-    faiss_vectorstore_path.mkdir(parents=True, exist_ok=True)
-    doc_path.mkdir(parents=True, exist_ok=True)
-    backup_root.mkdir(parents=True, exist_ok=True)
+def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS]):
+    faiss_dir = FAISS_BASE / category_slug
+    faiss_dir.mkdir(parents=True, exist_ok=True)
 
-    index_faiss = faiss_vectorstore_path / "index.faiss"
-    index_pkl = faiss_vectorstore_path / "index.pkl"
-    doc_jsonl = doc_path / "doc.jsonl"
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M")
+    index_faiss = faiss_dir / "index.faiss"
+    index_pkl   = faiss_dir / "index.pkl"
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    backup_dir = backup_root / timestamp
-    backup_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1) 기존 벡터스토어가 있으면 로드해서 병합
-    existing_vs: Optional[FAISS] = None
     if index_faiss.exists() and index_pkl.exists():
-        try:
-            existing_vs = FAISS.load_local(
-                str(faiss_vectorstore_path),
-                embeddings=embedding_model,
-                allow_dangerous_deserialization=True,
-            )
-        except Exception as e:
-            print(f"[경고] 기존 인덱스 로드 실패(새로 생성): {e}")
+        print("기존 인덱스 발견 → 병합 후 백업")
+        emb = OpenAIEmbeddings(model="text-embedding-3-large")
+        past_vs = FAISS.load_local(str(faiss_dir), embeddings=emb, allow_dangerous_deserialization=True)
+        if vectorstore is None:
+            vectorstore = past_vs
+        else:
+            vectorstore.merge_from(past_vs)
 
-        # 기존 인덱스 백업
-        try:
-            shutil.move(str(index_faiss), str(backup_dir / "index.faiss"))
-            shutil.move(str(index_pkl), str(backup_dir / "index.pkl"))
-        except Exception as e:
-            print(f"[경고] 인덱스 백업 실패(무시): {e}")
+        bdir = BACKUP_BASE / category_slug / ts
+        bdir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(index_faiss), str(bdir / "index.faiss"))
+        shutil.move(str(index_pkl),   str(bdir / "index.pkl"))
 
-    # 2) 벡터스토어 병합 로직
-    final_vs: Optional[FAISS] = None
-    if existing_vs and new_vectorstore:
-        existing_vs.merge_from(new_vectorstore)
-        final_vs = existing_vs
-    elif existing_vs and not new_vectorstore:
-        final_vs = existing_vs
-    elif new_vectorstore and not existing_vs:
-        final_vs = new_vectorstore
-    else:
-        print("[알림] 저장할 벡터스토어가 없습니다(새 문서도 없고 기존 인덱스도 없음).")
-        final_vs = None  # 그대로 진행(문서 JSONL만 저장 가능)
+    if vectorstore is None:
+        print("저장할 벡터스토어가 없습니다. 저장을 건너뜁니다.")
+        return
 
-    # 3) 벡터스토어 저장
-    if final_vs:
-        final_vs.save_local(str(faiss_vectorstore_path))
-        print(f"벡터스토어 저장 완료 → {faiss_vectorstore_path}")
-    else:
-        print("벡터스토어 저장 생략.")
+    vectorstore.save_local(str(faiss_dir))
+    print(f"저장 완료: {faiss_dir}")
 
-    # 4) 문서 JSONL 병합 + 백업
-    docs_out = []
+    docs_dir = DOCS_BASE / category_slug
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    doc_jsonl = docs_dir / "doc.jsonl"
+    merged_docs = list(docs)
+
     if doc_jsonl.exists():
-        try:
-            past_docs = load_docs_from_jsonl(str(doc_jsonl))
-            docs_out.extend(past_docs)
-            shutil.move(str(doc_jsonl), str(backup_dir / "doc.jsonl"))
-        except Exception as e:
-            print(f"[경고] 기존 doc.jsonl 로드/백업 실패(무시): {e}")
+        past_docs = load_docs_from_jsonl(str(doc_jsonl))
+        merged_docs.extend(past_docs)
+        bdir = BACKUP_BASE / category_slug / ts
+        bdir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(doc_jsonl), str(bdir / "doc.jsonl"))
 
-    docs_out.extend(new_docs or [])
-    save_docs_to_jsonl(docs_out, str(doc_jsonl))
-    print(f"문서 JSONL 저장 완료 → {doc_jsonl}")
-    print(f"백업 위치 → {backup_dir}")
-
-# -------------------------------------------------------------
+    save_docs_to_jsonl(merged_docs, str(doc_jsonl))
+    print(f"문서 메타 저장: {doc_jsonl}")
 
 def main():
-    todo_dir = HERE / "todo_documents"
-    past_dir = HERE / "past_documents"
-    faiss_dir = HERE / "faiss_db"
-    docs_dir = HERE / "docs"
-    backup_dir = HERE / "backup"
+    parser = argparse.ArgumentParser()
+    mx = parser.add_mutually_exclusive_group(required=True)
+    mx.add_argument("--category", choices=list(CATEGORIES.keys()), help="단일 카테고리만 구축")
+    mx.add_argument("--all", action="store_true", help="4개 카테고리를 일괄 구축")
+    args = parser.parse_args()
 
-    # 폴더 생성
-    past_dir.mkdir(parents=True, exist_ok=True)
-    faiss_dir.mkdir(parents=True, exist_ok=True)
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    targets = list(CATEGORIES.keys()) if args.all else [args.category]
 
-    # 작업
-    docs, new_vs = load_documents_process_vectorize(
-        todo_documents_path=todo_dir,
-        past_documents_path=past_dir,
-        embedding_model=EMBEDDINGS,
-    )
-    save(
-        faiss_vectorstore_path=faiss_dir,
-        doc_path=docs_dir,
-        backup_root=backup_dir,
-        new_vectorstore=new_vs,
-        new_docs=docs,
-        embedding_model=EMBEDDINGS,
-    )
-    print("✅ 전체 파이프라인 완료")
+    for slug in targets:
+        print("="*80)
+        print(f"[{CATEGORIES[slug]} | {slug}] 인덱스 구축 시작")
+        docs, vs = _process_category(slug)
+        _merge_and_save(slug, docs, vs)
+    print("="*80)
+    print("모든 작업 완료.")
 
 if __name__ == "__main__":
     main()

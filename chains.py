@@ -8,6 +8,7 @@ from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
 import streamlit as st
 from datetime import datetime
+from pathlib import Path
 
 
 SYSTEM_PROMPT = (
@@ -35,7 +36,17 @@ def get_vector_store():
     
     return vector_store
 
-
+def get_vector_store(category_slug: str):
+    """카테고리별 FAISS 로드"""
+    base = Path("./faiss_db") / category_slug
+    if not (base / "index.faiss").exists():
+        raise FileNotFoundError(f"FAISS index not found for category: {category_slug}")
+    vector_store = FAISS.load_local(
+        str(base),
+        embeddings=OpenAIEmbeddings(model="text-embedding-3-large"),
+        allow_dangerous_deserialization=True,
+    )
+    return vector_store
 
 def get_retreiver_chain(vector_store):
 
