@@ -1,4 +1,4 @@
-# --- second_page.py (drop-in) ---
+# --- second_page.py (drop-in; cohort-aware) ---
 import os
 import mimetypes
 import ntpath
@@ -25,6 +25,9 @@ CATEGORIES = {
     "학사제도": "academic_system",
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
 def _basename_crossplat(p: str) -> str:
     if not p:
         return ""
@@ -74,6 +77,47 @@ def _extract_source_filenames(contexts) -> List[str]:
             out.append(name)
     return out
 
+def _list_available_cohorts(slug: str) -> List[str]:
+    """
+    faiss_db/<slug>/<cohort>/index.faiss 구조에서 사용 가능한 cohort 목록을 스캔.
+    """
+    base = APP_DIR / "faiss_db" / slug
+    out = []
+    if base.exists():
+        for p in base.iterdir():
+            if p.is_dir() and (p / "index.faiss").exists():
+                out.append(p.name)
+    # 연도 내림차순 정렬(숫자 우선)
+    try:
+        out.sort(key=lambda x: int(x), reverse=True)
+    except Exception:
+        out.sort(reverse=True)
+    return out
+
+def _infer_default_cohort(student_id: Optional[str], cohorts: List[str]) -> int:
+    """
+    student_id에서 4자리 혹은 앞 2자리(→20YY)로 기본 연도 유추. 없으면 0.
+    """
+    if not cohorts:
+        return 0
+    if not student_id:
+        return 0
+    digits = "".join(ch for ch in str(student_id) if ch.isdigit())
+    candidates = []
+    if len(digits) >= 4:
+        candidates.append(digits[:4])  # 2020, 2021 ...
+    if len(digits) >= 2:
+        yy = int(digits[:2])
+        if 0 <= yy <= 99:
+            candidates.append(f"20{yy:02d}")
+    for c in candidates:
+        if c in cohorts:
+            return cohorts.index(c)
+    return 0
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main Page
+# ──────────────────────────────────────────────────────────────────────────────
 def second_page():
     st.header("Kyung Hee University's Regulations Chatbot")
 
@@ -93,6 +137,32 @@ def second_page():
     changed_category = (st.session_state["kb_category_slug"] != sel_slug)
     st.session_state["kb_category_slug"] = sel_slug
 
+    # --- 코호트(입학년도) 선택 (학부/대학원 시행세칙만) ---
+    st.session_state.setdefault("kb_cohort", {})
+    cohort = None
+    cohort_changed = False
+    if sel_slug in ("undergrad_rules", "grad_rules"):
+        cohorts = _list_available_cohorts(sel_slug)
+        if not cohorts:
+            st.error(
+                "해당 범주에서 사용 가능한 입학년도 인덱스가 없습니다.\n"
+                f"예: todo_documents/{sel_slug}/2020/ 에 문서를 넣고 "
+                f"`python add_document.py --category {sel_slug} --cohort 2020` 실행 후 이용하세요."
+            )
+            return
+        prev = st.session_state["kb_cohort"].get(sel_slug)
+        default_idx = (
+            _infer_default_cohort(st.session_state.get("student_id"), cohorts)
+            if prev is None else (cohorts.index(prev) if prev in cohorts else 0)
+        )
+        sel_cohort = st.selectbox("입학년도(학번) 선택", cohorts, index=default_idx, key=f"cohort_{sel_slug}")
+        cohort = sel_cohort
+        cohort_changed = (prev != cohort)
+        st.session_state["kb_cohort"][sel_slug] = cohort
+
+    # (카테고리, 코호트) 키
+    vs_key = f"{sel_slug}:{cohort or 'all'}"
+
     # 상단 버튼
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -101,12 +171,13 @@ def second_page():
             st.session_state.pop("chat_histories", None)
             st.session_state.pop("vector_stores", None)
             st.session_state.pop("dialog_identifier", None)
+            st.session_state.pop("kb_cohort", None)
             st.rerun()
     with col2:
         if st.button("Refresh", key="refresh"):
-            # 현재 카테고리의 히스토리만 리셋
+            # 현재 (카테고리, 코호트) 히스토리만 리셋
             if "chat_histories" in st.session_state:
-                st.session_state["chat_histories"][sel_slug] = []
+                st.session_state["chat_histories"][vs_key] = []
             st.session_state.pop("dialog_identifier", None)
             st.rerun()
 
@@ -115,31 +186,39 @@ def second_page():
     st.session_state.setdefault("vector_stores", {})
     st.session_state.setdefault("chat_histories", {})
 
-    # 카테고리 변경 시 히스토리/상태 준비
-    st.session_state["chat_histories"].setdefault(sel_slug, [])
+    # 히스토리 준비
+    st.session_state["chat_histories"].setdefault(vs_key, [])
 
-    # 벡터스토어 준비 (카테고리별 1회 로드&캐시)
-    vs = st.session_state["vector_stores"].get(sel_slug)
-    if (vs is None) or changed_category:
+    # 벡터스토어 준비 (카테고리+코호트 별 1회 로드&캐시)
+    vs = st.session_state["vector_stores"].get(vs_key)
+    if (vs is None) or changed_category or cohort_changed:
         try:
-            vs = get_vector_store(sel_slug)
-            st.session_state["vector_stores"][sel_slug] = vs
+            vs = get_vector_store(sel_slug, cohort=cohort)
+            st.session_state["vector_stores"][vs_key] = vs
         except FileNotFoundError:
-            st.error(f"선택한 범주('{sel_label}')에 대한 벡터 DB가 없습니다. 먼저 add_document.py로 구축해 주세요.")
+            if sel_slug in ("undergrad_rules", "grad_rules"):
+                st.error(
+                    f"선택한 범주/연도('{sel_label} / {cohort}')에 대한 벡터 DB가 없습니다.\n"
+                    f"todo_documents/{sel_slug}/{cohort}/ 에 문서를 넣고\n"
+                    f"`python add_document.py --category {sel_slug} --cohort {cohort}`로 인덱스를 구축해 주세요."
+                )
+            else:
+                st.error(f"선택한 범주('{sel_label}')에 대한 벡터 DB가 없습니다. 먼저 add_document.py로 구축해 주세요.")
             return
 
-    # 이전 대화 렌더링(선택된 카테고리만)
-    for message in st.session_state["chat_histories"][sel_slug]:
+    # 이전 대화 렌더링(선택된 카테고리+코호트만)
+    for message in st.session_state["chat_histories"][vs_key]:
         role = "AI" if isinstance(message, AIMessage) else "Human"
         with st.chat_message("AI" if role == "AI" else "Human"):
             st.write(message.content)
 
+    # 응답 생성 함수
     def get_response(user_input):
         history_retriever_chain = get_retreiver_chain(vs)
         conversation_rag_chain = get_conversational_rag(history_retriever_chain)
         response = conversation_rag_chain.invoke(
             {
-                "chat_history": st.session_state["chat_histories"][sel_slug],
+                "chat_history": st.session_state["chat_histories"][vs_key],
                 "input": user_input,
                 "student_id": st.session_state.get("student_id"),
                 "dialog_identifier": st.session_state["dialog_identifier"],
@@ -149,6 +228,7 @@ def second_page():
         contexts = response.get("context", [])
         return answer, contexts
 
+    # 사용자 입력
     if user_input := st.chat_input("Type your message here..."):
         st.chat_message("Human").write(user_input)
 
@@ -176,9 +256,9 @@ def second_page():
                             else:
                                 st.caption(f"⚠️ 파일을 찾을 수 없습니다: {fname}")
 
-                # 카테고리별 히스토리 저장
-                st.session_state["chat_histories"][sel_slug].append(HumanMessage(content=user_input))
-                st.session_state["chat_histories"][sel_slug].append(AIMessage(content=answer))
+                # 히스토리 저장 (카테고리+코호트)
+                st.session_state["chat_histories"][vs_key].append(HumanMessage(content=user_input))
+                st.session_state["chat_histories"][vs_key].append(AIMessage(content=answer))
 
             st.session_state.run_id = cb.traced_runs[0].id if cb.traced_runs else None
 
