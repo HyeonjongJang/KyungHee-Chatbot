@@ -1,5 +1,5 @@
-# add_document.py  (drop-in)
-import os, re, shutil, argparse, datetime, math   # ← math 추가
+# add_document.py  (cohort-ready drop-in)
+import os, re, shutil, argparse, datetime, math
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -20,6 +20,7 @@ CATEGORIES = {
     "academic_system":   "학사제도",
 }
 
+# ── 경로 베이스 ────────────────────────────────────────────────────────────────
 BASE         = Path(".")
 FAISS_BASE   = BASE / "faiss_db"
 TODO_BASE    = BASE / "todo_documents"
@@ -29,6 +30,7 @@ BACKUP_BASE  = BASE / "backup"
 
 SUPPORTED_EXTS = {".pdf", ".txt", ".ipynb"}
 
+# ── 파일 로더 ────────────────────────────────────────────────────────────────
 def _load_file(path: Path):
     if path.suffix.lower() == ".txt":
         return TextLoader(str(path)).load()
@@ -51,7 +53,7 @@ def _gather_files(todo_dir: Path) -> List[Path]:
         return []
     return [p for p in todo_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS]
 
-# ▼ 신규: 배치로 안전하게 인덱스 생성
+# ── 배치 인덱스 생성(메모리 안전) ─────────────────────────────────────────────
 def _build_index_in_batches(splits, emb, docs_per_batch: int = 32) -> Optional[FAISS]:
     total = len(splits)
     if total == 0:
@@ -63,25 +65,30 @@ def _build_index_in_batches(splits, emb, docs_per_batch: int = 32) -> Optional[F
         end   = min(start + docs_per_batch, total)
         batch = splits[start:end]
         print(f"   → 인덱스 배치 {bi+1}/{num_batches} (문서 {len(batch)}개)")
-        # 첫 배치는 from_documents, 이후는 add_documents
         if vs_local is None:
             vs_local = FAISS.from_documents(batch, embedding=emb)
         else:
             vs_local.add_documents(batch)
     return vs_local
 
-def _process_category(category_slug: str) -> Tuple[list, Optional[FAISS]]:
-    # batch_size는 OpenAIEmbeddings 내부 병렬 묶음 크기 (크게 상관 없지만 안전 여유)
+# ── 카테고리(+코호트) 처리 ────────────────────────────────────────────────────
+def _process_category(category_slug: str, cohort: Optional[str] = None) -> Tuple[list, Optional[FAISS]]:
+    """
+    주어진 카테고리(필수)와 코호트(선택)에 대해 todo_documents에서 파일을 읽어
+    분할 → 임베딩 → 벡터스토어(FAISS) 생성까지 수행.
+    """
     emb = OpenAIEmbeddings(model="text-embedding-3-large")
 
-    todo_dir = TODO_BASE / category_slug
-    past_dir = PAST_BASE / category_slug
+    # 코호트가 주어지면 하위 폴더 사용 (undergrad_rules/grad_rules용)
+    todo_dir = TODO_BASE / category_slug / cohort if cohort else TODO_BASE / category_slug
+    past_dir = PAST_BASE / category_slug / cohort if cohort else PAST_BASE / category_slug
     past_dir.mkdir(parents=True, exist_ok=True)
 
     files = _gather_files(todo_dir)
     total = len(files)
     if total == 0:
-        print(f"[{CATEGORIES[category_slug]}] 처리할 파일이 없습니다: {todo_dir}")
+        label = f"{CATEGORIES[category_slug]} | {category_slug}" + (f" | cohort={cohort}" if cohort else "")
+        print(f"[{label}] 처리할 파일이 없습니다: {todo_dir}")
         return [], None
 
     all_splits = []
@@ -99,6 +106,8 @@ def _process_category(category_slug: str) -> Tuple[list, Optional[FAISS]]:
                 meta = d.metadata or {}
                 meta["filename"] = f.name
                 meta["category"] = category_slug
+                if cohort:
+                    meta["cohort"] = cohort
                 d.metadata = meta
             if not splits:
                 print("   → 건너뜀(분할 결과 없음)")
@@ -115,12 +124,18 @@ def _process_category(category_slug: str) -> Tuple[list, Optional[FAISS]]:
         print(f"[{CATEGORIES[category_slug]}] 생성된 청크가 없습니다. 인덱스를 저장하지 않습니다.")
         return [], None
 
-    # ◆ 여기만 바뀜: 대량 한방 호출 → 안전한 배치 빌드
     vs_new = _build_index_in_batches(all_splits, emb, docs_per_batch=32)
     return all_splits, vs_new
 
-def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS]):
-    faiss_dir = FAISS_BASE / category_slug
+# ── 병합/저장 ────────────────────────────────────────────────────────────────
+def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS], cohort: Optional[str] = None):
+    """
+    새 인덱스를 기존 인덱스와 병합하고 저장.
+    - 저장 위치: faiss_db/<category_slug>[/<cohort>]/
+    - 문서 jsonl: docs/<category_slug>[/<cohort>]/doc.jsonl
+    - 백업: backup/<category_slug>[/<cohort>]/<timestamp>/
+    """
+    faiss_dir = FAISS_BASE / category_slug / cohort if cohort else FAISS_BASE / category_slug
     faiss_dir.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M")
@@ -136,7 +151,7 @@ def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS]):
         else:
             vectorstore.merge_from(past_vs)
 
-        bdir = BACKUP_BASE / category_slug / ts
+        bdir = BACKUP_BASE / category_slug / (cohort if cohort else "all") / ts
         bdir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(index_faiss), str(bdir / "index.faiss"))
         shutil.move(str(index_pkl),   str(bdir / "index.pkl"))
@@ -148,7 +163,8 @@ def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS]):
     vectorstore.save_local(str(faiss_dir))
     print(f"저장 완료: {faiss_dir}")
 
-    docs_dir = DOCS_BASE / category_slug
+    # 문서 메타 저장
+    docs_dir = DOCS_BASE / category_slug / cohort if cohort else DOCS_BASE / category_slug
     docs_dir.mkdir(parents=True, exist_ok=True)
     doc_jsonl = docs_dir / "doc.jsonl"
     merged_docs = list(docs)
@@ -156,28 +172,38 @@ def _merge_and_save(category_slug: str, docs, vectorstore: Optional[FAISS]):
     if doc_jsonl.exists():
         past_docs = load_docs_from_jsonl(str(doc_jsonl))
         merged_docs.extend(past_docs)
-        bdir = BACKUP_BASE / category_slug / ts
+        bdir = BACKUP_BASE / category_slug / (cohort if cohort else "all") / ts
         bdir.mkdir(parents=True, exist_ok=True)
         shutil.move(str(doc_jsonl), str(bdir / "doc.jsonl"))
 
     save_docs_to_jsonl(merged_docs, str(doc_jsonl))
     print(f"문서 메타 저장: {doc_jsonl}")
 
+# ── CLI ─────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
     mx = parser.add_mutually_exclusive_group(required=True)
     mx.add_argument("--category", choices=list(CATEGORIES.keys()), help="단일 카테고리만 구축")
     mx.add_argument("--all", action="store_true", help="4개 카테고리를 일괄 구축")
+    parser.add_argument("--cohort", help="입학년도(예: 2020). undergrad_rules/grad_rules에서만 사용")
     args = parser.parse_args()
 
     targets = list(CATEGORIES.keys()) if args.all else [args.category]
 
     for slug in targets:
-        print("="*80)
-        print(f"[{CATEGORIES[slug]} | {slug}] 인덱스 구축 시작")
-        docs, vs = _process_category(slug)
-        _merge_and_save(slug, docs, vs)
-    print("="*80)
+        # undergrad_rules / grad_rules에서만 cohort 적용
+        apply_cohort = args.cohort if slug in {"undergrad_rules", "grad_rules"} else None
+        if args.cohort and apply_cohort is None:
+            print(f"⚠️  '{slug}' 범주에서는 --cohort 옵션이 무시됩니다.")
+
+        print("=" * 80)
+        label = f"{CATEGORIES[slug]} | {slug}" + (f" | cohort={apply_cohort}" if apply_cohort else "")
+        print(f"[{label}] 인덱스 구축 시작")
+
+        docs, vs = _process_category(slug, cohort=apply_cohort)
+        _merge_and_save(slug, docs, vs, cohort=apply_cohort)
+
+    print("=" * 80)
     print("모든 작업 완료.")
 
 if __name__ == "__main__":
