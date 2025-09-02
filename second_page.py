@@ -1,5 +1,6 @@
-# --- second_page.py (drop-in; cohort-aware) ---
+# --- second_page.py (drop-in; cohort-aware & reliable Source display) ---
 import os
+import re
 import mimetypes
 import ntpath
 import unicodedata
@@ -61,6 +62,7 @@ def _find_source_file(filename: str) -> Optional[str]:
     return None
 
 def _extract_source_filenames(contexts) -> List[str]:
+    """컨텍스트 문서 목록에서 파일명만 중복 없이 추출"""
     seen, out = set(), []
     for d in contexts or []:
         meta = getattr(d, "metadata", {}) or {}
@@ -114,6 +116,13 @@ def _infer_default_cohort(student_id: Optional[str], cohorts: List[str]) -> int:
         if c in cohorts:
             return cohorts.index(c)
     return 0
+
+def _strip_llm_source_lines(text: str) -> str:
+    """
+    LLM이 임의로 출력한 'Source:' 라인을 제거.
+    실제 출처 표기는 contexts에서 추출해 아래에서 별도로 붙인다.
+    """
+    return re.sub(r"(?im)^\s*source\s*:\s*.*$", "", text).strip()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Page
@@ -234,11 +243,20 @@ def second_page():
 
         with collect_runs() as cb:
             with st.spinner("Thinking..."):
-                answer, contexts = get_response(user_input)
+                raw_answer, contexts = get_response(user_input)
+
+                # 1) LLM이 임의로 출력한 Source 라인 제거
+                answer = _strip_llm_source_lines(raw_answer)
+
+                # 2) 컨텍스트에서 실제 파일명 추출 후, 우리가 정확한 출처를 부착
+                source_files = _extract_source_filenames(contexts)
+                if source_files:
+                    answer = f"{answer}\n\nSource: " + ", ".join(source_files)
+
+                # 3) 화면 출력
                 st.chat_message("AI").write(answer)
 
-                # 📎 출처 문서 다운로드 (하위폴더 포함)
-                source_files = _extract_source_filenames(contexts)
+                # 4) 📎 출처 문서 다운로드 (하위폴더 포함)
                 if source_files:
                     with st.expander("📎 출처 문서 다운로드"):
                         for fname in source_files:

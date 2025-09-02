@@ -39,4 +39,3 @@ def first_page():
                 st.error("Invalid Members ID. Please try again.")
         else:
             st.error("You must agree to the terms and conditions before proceeding.")
-
