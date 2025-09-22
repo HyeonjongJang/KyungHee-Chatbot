@@ -1,6 +1,13 @@
 # --- second_page.py (drop-in; cohort-aware & reliable Source display) ---
 import os
 import re
+try:
+    from langchain.schema import Document as LC_Document
+except Exception:
+    try:
+        from langchain_core.documents import Document as LC_Document
+    except Exception:
+        LC_Document = None
 import mimetypes
 import ntpath
 import unicodedata
@@ -39,33 +46,121 @@ def _basename_crossplat(p: str) -> str:
 
 def _coerce_ctx_item(d) -> dict:
     """
-    LangChain Document 혹은 dict/str 형태의 컨텍스트 항목을
-    화면 표시용 표준 스키마로 정규화합니다.
+    LangChain Document / dict / 문자열 표현까지 모두 받아
+    화면 표시용 표준 스키마로 정규화.
     return: {"filename": str, "page": str, "url": str, "snippet": str}
     """
     item = {"filename": "", "page": "", "url": "", "snippet": ""}
-    if d is None:
-        return item
 
-    # 1) dict/Document 공통 처리
+    # 0) 공통 유틸
+    def _basename(s: str) -> str:
+        if not s:
+            return ""
+        s = s.strip().strip('"').strip("'")
+        s = s.split("?", 1)[0].split("#", 1)[0]
+        s = s.split("/")[-1].split("\\")[-1]
+        return s
+
+    def _strip_source_prefix(snippet: str, fname: str) -> str:
+        # "Source : 파일명" / "Source: 파일명" 접두사 제거(첫 줄 위주)
+        if not snippet:
+            return ""
+        if fname:
+            snippet = re.sub(
+                rf"(?im)^\s*Source\s*:?\s*{re.escape(fname)}\s*",
+                "",
+                snippet
+            )
+        snippet = re.sub(r"(?im)^\s*Source\s*:\s*", "", snippet, count=1)
+        return snippet.strip()
+
+    # 1) dict 형태
     if isinstance(d, dict):
         meta = d.get("metadata") or {}
-        item["filename"] = meta.get("filename") or _basename_crossplat(meta.get("source", "")) or ""
-        # page / page_number / pages 등 다양성 고려
-        item["page"] = str(meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or "") or ""
-        # url 계열 메타키가 있으면 채택
-        item["url"] = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
-        item["snippet"] = (d.get("page_content") or d.get("content") or "").strip()
-    else:
-        # str 같은 경우: 스니펫만 남김
-        item["snippet"] = str(d).strip()
+        text = (d.get("page_content") or d.get("content") or "") or ""
+        fname = meta.get("filename") or _basename(meta.get("source", ""))
+        page  = meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or ""
+        url   = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
 
-    # 스트립 & 클리핑(너무 길면 280자로 잘라 표시)
-    import re
-    item["snippet"] = re.sub(r"\s+", " ", item["snippet"]).strip()
-    if len(item["snippet"]) > 280:
-        item["snippet"] = item["snippet"][:279] + "…"
+        # page_content 첫 줄에서 filename 백업 추출
+        if not fname and text:
+            first = text.splitlines()[0].strip()
+            if first.lower().startswith("source"):
+                maybe = first.split(":", 1)[-1].strip()
+                fname = _basename(maybe)
+
+        # 스니펫 정리
+        text = _strip_source_prefix(text, fname)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > 280:
+            text = text[:279] + "…"
+
+        item.update({
+            "filename": fname or "",
+            "page": str(page) if page is not None else "",
+            "url": url or "",
+            "snippet": text
+        })
+        return item
+
+    # 2) LangChain Document 객체
+    if LC_Document is not None and isinstance(d, LC_Document):
+        meta = getattr(d, "metadata", {}) or {}
+        text = getattr(d, "page_content", "") or ""
+        fname = meta.get("filename") or _basename(meta.get("source", ""))
+        page  = meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or ""
+        url   = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
+
+        if not fname and text:
+            first = text.splitlines()[0].strip()
+            if first.lower().startswith("source"):
+                maybe = first.split(":", 1)[-1].strip()
+                fname = _basename(maybe)
+
+        text = _strip_source_prefix(text, fname)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > 280:
+            text = text[:279] + "…"
+
+        item.update({
+            "filename": fname or "",
+            "page": str(page) if page is not None else "",
+            "url": url or "",
+            "snippet": text
+        })
+        return item
+
+    # 3) 문자열 표현 (예: "Document(page_content='...', metadata={...})")
+    s = str(d or "")
+    # page_content='...'(또는 "page_content=\"...\"") 구간을 파싱
+    m = re.search(r"page_content\s*=\s*['\"](.*?)['\"]\s*,", s, flags=re.S)
+    text = m.group(1) if m else s
+
+    # filename 후보: "Source : 파일명" 첫 줄에서 추출
+    fname = ""
+    first = text.splitlines()[0].strip() if text else ""
+    if first.lower().startswith("source"):
+        maybe = first.split(":", 1)[-1].strip()
+        fname = _basename(maybe)
+
+    # page 후보: metadata={'page': N} 등 문자열에서 파싱 시도
+    mpage = re.search(r"[{,]\s*['\"]?(page|page_number|pageIndex)['\"]?\s*:\s*['\"]?(\d+)['\"]?", s)
+    page = mpage.group(2) if mpage else ""
+
+    # 정리
+    text = _strip_source_prefix(text, fname)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > 280:
+        text = text[:279] + "…"
+
+    item.update({
+        "filename": fname or "",
+        "page": str(page) if page is not None else "",
+        "url": "",
+        "snippet": text
+    })
     return item
+
 
 
 def _render_context_previews(contexts: list, max_items: int = 5):
