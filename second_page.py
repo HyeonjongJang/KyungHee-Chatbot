@@ -161,7 +161,17 @@ def _coerce_ctx_item(d) -> dict:
     })
     return item
 
-
+def _overlap_score(a: str, b: str) -> float:
+    """
+    답변(a)과 스니펫(b)의 토큰 교집합 비율을 간단히 계산.
+    길이 2 이상 토큰만 사용.
+    """
+    ta = {t for t in re.findall(r"\w+", (a or "").lower()) if len(t) >= 2}
+    tb = {t for t in re.findall(r"\w+", (b or "").lower()) if len(t) >= 2}
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta & tb)
+    return inter / (len(tb) or 1)
 
 def _render_context_previews(contexts: list, max_items: int = 5):
     """
@@ -456,34 +466,33 @@ def second_page():
                 # 1) LLM이 임의로 출력한 Source 라인 제거
                 answer = _strip_llm_source_lines(raw_answer)
 
-                # 2) 컨텍스트에서 실제 파일명 추출 후, 우리가 정확한 출처를 부착
-                source_files = _extract_source_filenames(contexts)
+                # 2) 상위 N개 컨텍스트를 '답변과의 겹침도'로 재정렬하여 선택
+                TOPK_CONTEXTS = st.session_state.get("topk_ctx", 5) if "topk_ctx" in st.session_state else 5
+
+                # (A) 전부 정규화
+                coerced = [_coerce_ctx_item(d) for d in (contexts or [])]
+
+                # (B) 겹침 점수로 정렬 (답변과 더 겹치는 스니펫이 앞에 오도록)
+                coerced.sort(key=lambda c: _overlap_score(answer, c.get("snippet", "")), reverse=True)
+
+                # (C) 최종 상위 N개만 사용
+                coerced = coerced[:TOPK_CONTEXTS]
+
+                # 3) 필터링된 상위 N개의 파일명만 Source 라인에 반영
+                seen, source_files = set(), []
+                for c in coerced:
+                    name = (c.get("filename") or "").strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        source_files.append(name)
                 if source_files:
                     answer = f"{answer}\n\nSource: " + ", ".join(source_files)
 
-                # 3) 화면 출력
+                # 4) 화면 출력
                 st.chat_message("AI").write(answer)
 
-                # 3-1) 참고한 문서 조각(스니펫) 미리보기
-                _render_context_previews(contexts, max_items=5)
-
-                # 4) 📎 출처 문서 다운로드 (하위폴더 포함)
-                if source_files:
-                    with st.expander("📎 출처 문서 다운로드"):
-                        for fname in source_files:
-                            found_path = _find_source_file(fname)
-                            if found_path and os.path.exists(found_path):
-                                mime, _ = mimetypes.guess_type(fname)
-                                with open(found_path, "rb") as f:
-                                    st.download_button(
-                                        label=f"📥 {fname}",
-                                        data=f,
-                                        file_name=fname,
-                                        mime=mime or "application/octet-stream",
-                                        key=f"dl_{fname}_{st.session_state['dialog_identifier']}",
-                                    )
-                            else:
-                                st.caption(f"⚠️ 파일을 찾을 수 없습니다: {fname}")
+                # 5) 참고한 문서 조각(스니펫) 미리보기 — 정렬/슬라이스된 동일 리스트 사용!
+                _render_context_previews(coerced, max_items=TOPK_CONTEXTS)
 
                 # 히스토리 저장 (카테고리+코호트)
                 st.session_state["chat_histories"][vs_key].append(HumanMessage(content=user_input))
