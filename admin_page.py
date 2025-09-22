@@ -107,21 +107,26 @@ def _basename_like(s: Any) -> str:
         return str(s)
     
 def _format_contexts(ctxs: Any, max_items: int = 5) -> str:
-    """[{filename, page, snippet}] 리스트를 표출용 문자열로."""
     if not isinstance(ctxs, list) or not ctxs:
         return ""
     parts = []
     for c in ctxs[:max_items]:
-        try:
-            fn = (c.get("filename") or "").strip()
-            pg = str(c.get("page") or "").strip()
-            sn = (c.get("snippet") or "").strip()
-            head = fn if fn else "문서"
-            if pg:
-                head += f" (p.{pg})"
-            parts.append(f"• {head}: {sn}")
-        except Exception:
-            continue
+        fn = (c.get("filename") or "").strip()
+        pg = str(c.get("page") or "").strip()
+        sn = (c.get("snippet") or "").strip()
+
+        # 1) "Source : 파일명" 접두사 제거
+        if fn:
+            # 예) "Source : XXX.pdf ..." 또는 "Source: XXX.pdf ..."
+            sn = re.sub(rf'^\s*Source\s*:?\s*{re.escape(fn)}\s*:?\s*', '', sn, flags=re.IGNORECASE)
+
+        # 2) 과도한 공백 정리
+        sn = re.sub(r'\s+', ' ', sn).strip()
+
+        head = fn if fn else "문서"
+        if pg:
+            head += f" (p.{pg})"
+        parts.append(f"• {head}: {sn}")
     return "\n".join(parts)
 
 def _extract_contexts_from_outputs(run: Dict[str, Any], topk: int = 5) -> List[Dict[str, Any]]:

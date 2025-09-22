@@ -37,6 +37,90 @@ def _basename_crossplat(p: str) -> str:
     name = name.split("/")[-1].split("\\")[-1]
     return unicodedata.normalize("NFC", name)
 
+def _coerce_ctx_item(d) -> dict:
+    """
+    LangChain Document 혹은 dict/str 형태의 컨텍스트 항목을
+    화면 표시용 표준 스키마로 정규화합니다.
+    return: {"filename": str, "page": str, "url": str, "snippet": str}
+    """
+    item = {"filename": "", "page": "", "url": "", "snippet": ""}
+    if d is None:
+        return item
+
+    # 1) dict/Document 공통 처리
+    if isinstance(d, dict):
+        meta = d.get("metadata") or {}
+        item["filename"] = meta.get("filename") or _basename_crossplat(meta.get("source", "")) or ""
+        # page / page_number / pages 등 다양성 고려
+        item["page"] = str(meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or "") or ""
+        # url 계열 메타키가 있으면 채택
+        item["url"] = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
+        item["snippet"] = (d.get("page_content") or d.get("content") or "").strip()
+    else:
+        # str 같은 경우: 스니펫만 남김
+        item["snippet"] = str(d).strip()
+
+    # 스트립 & 클리핑(너무 길면 280자로 잘라 표시)
+    import re
+    item["snippet"] = re.sub(r"\s+", " ", item["snippet"]).strip()
+    if len(item["snippet"]) > 280:
+        item["snippet"] = item["snippet"][:279] + "…"
+    return item
+
+
+def _render_context_previews(contexts: list, max_items: int = 5):
+    """
+    컨텍스트 문서 조각을 예쁘게 렌더링합니다.
+    - 파일명, 페이지, 스니펫
+    - (있다면) URL 열기 버튼
+    - ⚡ 미리보기 카드마다 해당 파일 '개별 다운로드' 버튼 추가
+    """
+    if not contexts:
+        return
+    with st.expander("📑 참고한 문서 조각 (미리보기)"):
+        for i, d in enumerate(contexts[:max_items], 1):
+            c = _coerce_ctx_item(d)
+            header = c["filename"] or "문서"
+            if c["page"]:
+                header += f" (p.{c['page']})"
+
+            st.markdown(f"**{i}. {header}**")
+            st.markdown(f"> {c['snippet']}")
+
+            # 버튼 영역: URL 열기 / 개별 다운로드
+            bcol1, bcol2 = st.columns([1, 1], vertical_alignment="center")
+
+            with bcol1:
+                if c["url"]:
+                    st.link_button("원문 열기", c["url"], use_container_width=True)
+                else:
+                    st.caption(" ")  # 자리 맞춤
+
+            with bcol2:
+                fname = c["filename"]
+                if fname:
+                    found_path = _find_source_file(fname)
+                    if found_path and os.path.exists(found_path):
+                        mime, _ = mimetypes.guess_type(fname)
+                        # 각 카드마다 고유 key 필요: dialog_identifier + index + filename
+                        dl_key = f"ctxdl_{st.session_state.get('dialog_identifier','')}_{i}_{fname}"
+                        with open(found_path, "rb") as f:
+                            st.download_button(
+                                label=f"📥 {fname}",
+                                data=f,
+                                file_name=fname,
+                                mime=mime or "application/octet-stream",
+                                key=dl_key,
+                                use_container_width=True,
+                            )
+                    else:
+                        st.caption("⚠️ 로컬에서 파일을 찾을 수 없습니다.")
+                else:
+                    st.caption("⚠️ 파일명이 없어 다운로드를 제공할 수 없습니다.")
+
+            st.divider()
+
+
 def _find_source_file(filename: str) -> Optional[str]:
     """past_documents / todo_documents의 모든 하위폴더를 재귀적으로 탐색"""
     if not filename:
@@ -255,6 +339,9 @@ def second_page():
 
                 # 3) 화면 출력
                 st.chat_message("AI").write(answer)
+
+                # 3-1) 참고한 문서 조각(스니펫) 미리보기
+                _render_context_previews(contexts, max_items=5)
 
                 # 4) 📎 출처 문서 다운로드 (하위폴더 포함)
                 if source_files:
