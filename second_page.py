@@ -466,33 +466,51 @@ def second_page():
                 # 1) LLM이 임의로 출력한 Source 라인 제거
                 answer = _strip_llm_source_lines(raw_answer)
 
-                # 2) 상위 N개 컨텍스트를 '답변과의 겹침도'로 재정렬하여 선택
-                TOPK_CONTEXTS = st.session_state.get("topk_ctx", 5) if "topk_ctx" in st.session_state else 5
+                # 2) 상위 컨텍스트 선별 파라미터
+                TOPK_CONTEXTS  = st.session_state.get("topk_ctx", 5) if "topk_ctx" in st.session_state else 5
+                MIN_OVERLAP    = 0.12
+                MAX_SOURCES    = TOPK_CONTEXTS
 
                 # (A) 전부 정규화
-                coerced = [_coerce_ctx_item(d) for d in (contexts or [])]
+                normalized = [_coerce_ctx_item(d) for d in (contexts or [])]
 
-                # (B) 겹침 점수로 정렬 (답변과 더 겹치는 스니펫이 앞에 오도록)
-                coerced.sort(key=lambda c: _overlap_score(answer, c.get("snippet", "")), reverse=True)
+                # (B) 스코어 계산(답변과의 겹침도)
+                scored = []
+                for c in normalized:
+                    fname = (c.get("filename") or "").strip()
+                    score = _overlap_score(answer, c.get("snippet", ""))
+                    scored.append({**c, "_score": score, "_has_name": bool(fname)})
 
-                # (C) 최종 상위 N개만 사용
-                coerced = coerced[:TOPK_CONTEXTS]
+                # (C) 임계치 이상만
+                filtered = [c for c in scored if c["_score"] >= MIN_OVERLAP]
 
-                # 3) 필터링된 상위 N개의 파일명만 Source 라인에 반영
-                seen, source_files = set(), []
-                for c in coerced:
-                    name = (c.get("filename") or "").strip()
-                    if name and name not in seen:
-                        seen.add(name)
-                        source_files.append(name)
+                # (D) 파일명 기준 집계(같은 파일은 최고 점수 1개만)
+                by_file = {}
+                for c in filtered:
+                    fname = (c.get("filename") or "").strip()
+                    if not fname:
+                        continue
+                    best = by_file.get(fname)
+                    if (best is None) or (c["_score"] > best["_score"]):
+                        by_file[fname] = c
+
+                # (E) 상위 N개 선택
+                top_by_file = sorted(by_file.values(), key=lambda x: x["_score"], reverse=True)[:MAX_SOURCES]
+
+                # (F) 미리보기/Source에 쓸 리스트
+                coerced = top_by_file
+
+                # 3) Source 라인
+                source_files = [c["filename"] for c in coerced if c.get("filename")]
                 if source_files:
                     answer = f"{answer}\n\nSource: " + ", ".join(source_files)
 
                 # 4) 화면 출력
                 st.chat_message("AI").write(answer)
 
-                # 5) 참고한 문서 조각(스니펫) 미리보기 — 정렬/슬라이스된 동일 리스트 사용!
-                _render_context_previews(coerced, max_items=TOPK_CONTEXTS)
+                # 5) 미리보기 (동일 리스트 사용)
+                _render_context_previews(coerced, max_items=len(coerced) if coerced else 0)
+
 
                 # 히스토리 저장 (카테고리+코호트)
                 st.session_state["chat_histories"][vs_key].append(HumanMessage(content=user_input))
