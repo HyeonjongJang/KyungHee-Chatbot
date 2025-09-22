@@ -184,7 +184,7 @@ def _render_context_previews(contexts: list, max_items: int = 5):
         return
     with st.expander("📑 참고한 문서 조각 (미리보기)"):
         for i, d in enumerate(contexts[:max_items], 1):
-            c = _coerce_ctx_item(d)
+            c = d if (isinstance(d, dict) and ("filename" in d and "snippet" in d)) else _coerce_ctx_item(d)
             header = c["filename"] or "문서"
             if c["page"]:
                 header += f" (p.{c['page']})"
