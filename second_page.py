@@ -241,18 +241,47 @@ def _find_source_file(filename: str) -> Optional[str]:
     return None
 
 def _extract_source_filenames(contexts) -> List[str]:
-    """컨텍스트 문서 목록에서 파일명만 중복 없이 추출"""
+    """컨텍스트 문서 목록에서 파일명만 중복 없이 추출 (dict/Document/str 모두 지원)"""
+    def _basename(p: str) -> str:
+        if not p:
+            return ""
+        p = p.strip().strip('"').strip("'")
+        name = ntpath.basename(p)
+        name = name.split("/")[-1].split("\\")[-1]
+        return unicodedata.normalize("NFC", name)
+
     seen, out = set(), []
     for d in contexts or []:
-        meta = getattr(d, "metadata", {}) or {}
-        name = meta.get("filename")
-        if not name:
-            name = _basename_crossplat(meta.get("source", ""))
-        if (not name) and getattr(d, "page_content", ""):
-            first = d.page_content.splitlines()[0].strip()
-            if first.lower().startswith("source"):
-                maybe = first.split(":", 1)[-1].strip()
-                name = _basename_crossplat(maybe)
+        name = ""
+        # 1) dict
+        if isinstance(d, dict):
+            meta = d.get("metadata") or {}
+            name = meta.get("filename") or _basename(meta.get("source", ""))
+            if (not name) and (d.get("page_content") or d.get("content")):
+                first = (d.get("page_content") or d.get("content") or "").splitlines()[0].strip()
+                if first.lower().startswith("source"):
+                    maybe = first.split(":", 1)[-1].strip()
+                    name = _basename(maybe)
+        else:
+            # 2) Document (있다면)
+            if LC_Document is not None and isinstance(d, LC_Document):
+                meta = getattr(d, "metadata", {}) or {}
+                name = meta.get("filename") or _basename(meta.get("source", ""))
+                if (not name) and getattr(d, "page_content", ""):
+                    first = d.page_content.splitlines()[0].strip()
+                    if first.lower().startswith("source"):
+                        maybe = first.split(":", 1)[-1].strip()
+                        name = _basename(maybe)
+            # 3) 문자열 표현
+            else:
+                s = str(d or "")
+                m = re.search(r"page_content\s*=\s*['\"](.*?)['\"]\s*,", s, flags=re.S)
+                text = m.group(1) if m else s
+                first = text.splitlines()[0].strip() if text else ""
+                if first.lower().startswith("source"):
+                    maybe = first.split(":", 1)[-1].strip()
+                    name = _basename(maybe)
+
         if name and name not in seen:
             seen.add(name)
             out.append(name)
