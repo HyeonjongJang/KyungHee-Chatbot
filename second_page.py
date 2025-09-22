@@ -14,6 +14,13 @@ import unicodedata
 import uuid
 from pathlib import Path
 from typing import Optional, List
+try:
+    from ragas import evaluate as ragas_evaluate
+    from ragas.metrics import faithfulness as ragas_faithfulness, answer_relevancy as ragas_answer_rel
+    from datasets import Dataset as HF_Dataset
+    _HAS_RAGAS = True
+except Exception:
+    _HAS_RAGAS = False
 
 import streamlit as st
 from chains import get_vector_store, get_retreiver_chain, get_conversational_rag
@@ -36,6 +43,40 @@ CATEGORIES = {
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False, ttl=600)
+def _compute_ragas_scores(question: str, answer: str, contexts_snippets: list[str]) -> dict:
+    """
+    ragas로 충실도(faithfulness), 답변_관련성(answer_relevancy) 계산.
+    반환: {"faithfulness": float|None, "answer_relevancy": float|None}
+    """
+    if not _HAS_RAGAS:
+        # ragas 미설치 시, 간단한 대체치(겹침도)라도 돌려준다
+        try:
+            approx = _overlap_score(answer, " ".join(contexts_snippets))
+        except Exception:
+            approx = 0.0
+        return {"faithfulness": None, "answer_relevancy": approx}
+
+    # ragas 입력: datasets.Dataset({"question","answer","contexts"})
+    # contexts는 문자열 리스트여야 함
+    samples = [{"question": question or "",
+                "answer": answer or "",
+                "contexts": [s or "" for s in contexts_snippets] or [""]}]
+    ds = HF_Dataset.from_list(samples)
+
+    res = ragas_evaluate(ds, metrics=[ragas_faithfulness, ragas_answer_rel])
+    # res는 datasets.Dataset / pandas.DataFrame 유사: 컬럼 이름 그대로 접근
+    try:
+        f = float(res["faithfulness"][0])
+    except Exception:
+        f = None
+    try:
+        a = float(res["answer_relevancy"][0])
+    except Exception:
+        a = None
+    return {"faithfulness": f, "answer_relevancy": a}
+
 def _basename_crossplat(p: str) -> str:
     if not p:
         return ""
@@ -505,8 +546,26 @@ def second_page():
                 if source_files:
                     answer = f"{answer}\n\nSource: " + ", ".join(source_files)
 
+                # ★★★ 3-1) RAGAS 품질 점수 계산 추가 ★★★
+                # ragas contexts는 "문자열 리스트"여야 하므로, 현재 선택된 조각들의 snippet만 추출
+                ragas_snippets = [c.get("snippet", "") for c in coerced][:5]  # k=5
+                scores = _compute_ragas_scores(user_input, answer, ragas_snippets)
+
                 # 4) 화면 출력
                 st.chat_message("AI").write(answer)
+
+                # ★★★ 4-1) 점수 UI 표시(메트릭) ★★★
+                with st.container(border=True):
+                    st.markdown("#### 🧪 응답 품질 점수 (RAGAS)")
+                    colA, colB = st.columns(2)
+                    f = scores.get("faithfulness")
+                    r = scores.get("answer_relevancy")
+                    # 0~1 범위를 %로 표기 (None이면 "N/A")
+                    def _pct(x):
+                        return f"{x*100:.1f}%" if isinstance(x, (int, float)) else "N/A"
+                    colA.metric("충실도 (근거 대비 일치도)", _pct(f))
+                    colB.metric("답변_관련성 (질문 대비 적합도)", _pct(r))
+                    st.caption("※ 정답 데이터 없이 ragas로 산출한 상대적 점수입니다. 1.00에 가까울수록 좋습니다.")
 
                 # 5) 미리보기 (동일 리스트 사용)
                 _render_context_previews(coerced, max_items=len(coerced) if coerced else 0)
