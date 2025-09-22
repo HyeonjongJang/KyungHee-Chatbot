@@ -88,6 +88,99 @@ def _safe_parse_dt(x: Any) -> Optional[datetime]:
         return dt
     except Exception:
         return None
+    
+def _basename_like(s: Any) -> str:
+    """
+    경로/URL/문자열에서 파일명 유사 부분만 추출.
+    예: 'https://foo/bar/baz.pdf?p=3' -> 'baz.pdf'
+    """
+    if not s:
+        return ""
+    try:
+        t = str(s).strip().strip('"').strip("'")
+        # 쿼리스트립
+        t = t.split("?", 1)[0].split("#", 1)[0]
+        # 경로 베이스네임
+        t = t.split("/")[-1].split("\\")[-1]
+        return t
+    except Exception:
+        return str(s)
+    
+def _format_contexts(ctxs: Any, max_items: int = 5) -> str:
+    """[{filename, page, snippet}] 리스트를 표출용 문자열로."""
+    if not isinstance(ctxs, list) or not ctxs:
+        return ""
+    parts = []
+    for c in ctxs[:max_items]:
+        try:
+            fn = (c.get("filename") or "").strip()
+            pg = str(c.get("page") or "").strip()
+            sn = (c.get("snippet") or "").strip()
+            head = fn if fn else "문서"
+            if pg:
+                head += f" (p.{pg})"
+            parts.append(f"• {head}: {sn}")
+        except Exception:
+            continue
+    return "\n".join(parts)
+
+def _extract_contexts_from_outputs(run: Dict[str, Any], topk: int = 5) -> List[Dict[str, Any]]:
+    outs = _as_dict(run.get("outputs"))
+    out = []
+    def harvest(seq):
+        for d in (seq or []):
+            try:
+                if isinstance(d, dict):
+                    meta = _as_dict(d.get("metadata"))
+                    fname = meta.get("filename") or _basename_like(meta.get("source"))
+                    page  = meta.get("page") or meta.get("page_number") or ""
+                    text  = d.get("page_content") or d.get("content") or ""
+                else:
+                    fname, page, text = "", "", str(d)
+                if text:
+                    out.append({"filename": (fname or ""), "page": page, "snippet": text})
+            except Exception:
+                continue
+    for k in ("context", "documents", "source_documents"):
+        v = outs.get(k)
+        if isinstance(v, list) and v:
+            harvest(v)
+    # dedup & topk
+    seen, uniq = set(), []
+    for x in out:
+        key = (x.get("filename",""), x.get("page",""), x.get("snippet","")[:120])
+        if key in seen: 
+            continue
+        seen.add(key); uniq.append(x)
+    return uniq[:topk]
+
+def _to_rows_from_runs(reps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for r in reps:
+        ts = _safe_parse_dt(r.get("start_time")) or _safe_parse_dt(r.get("end_time"))
+        if ts:
+            ts = ts.astimezone(KST)
+        sid = _extract_member_id(r)
+        q = _normalize_text(_extract_question(r))
+        a = _strip_source_lines(_extract_answer(r))
+
+        # 🔹 추가: outputs에서 참고문서 뽑기
+        ctxs = _extract_contexts_from_outputs(r, topk=5)
+        ctx_str = _format_contexts(ctxs, max_items=5)
+
+        rows.append({
+            "ts": ts,
+            "시각(KST)": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
+            "ID": sid,
+            "질문": _clip(q, 500),
+            "답변": _clip(a, 800),
+            "참고문서": ctx_str,      # 표 표시
+            "_q_full": q,
+            "_a_full": a,
+            "_contexts": ctxs,        # 다운로드용
+        })
+    ...
+
 
 def _as_dict(x: Any) -> Dict[str, Any]:
     return x if isinstance(x, dict) else {}
@@ -285,51 +378,10 @@ def _select_representative_runs(runs: List[Dict[str, Any]]) -> List[Dict[str, An
         selected.append(best)
     return selected
 
-def _to_rows_from_runs(reps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    for r in reps:
-        ts = _safe_parse_dt(r.get("start_time")) or _safe_parse_dt(r.get("end_time"))
-        if ts:
-            ts = ts.astimezone(KST)
-        sid = _extract_member_id(r)
-        q = _normalize_text(_extract_question(r))
-        a = _strip_source_lines(_extract_answer(r))
-        rows.append({
-            "ts": ts,
-            "시각(KST)": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
-            "ID": sid,
-            "질문": _clip(q, 500),
-            "답변": _clip(a, 800),
-            "_q_full": q,
-            "_a_full": a,
-        })
-    # 공격적 dedup: 동일(ID+질문) & ±10초 → 최신 1건만
-    rows.sort(key=lambda r: r["ts"] or datetime.min)
-    deduped: List[Dict[str, Any]] = []
-    for row in rows:
-        if not deduped:
-            deduped.append(row)
-            continue
-        last = deduped[-1]
-        same_id = (row["ID"] == last["ID"])
-        same_q = (_normalize_text(row["_q_full"]) == _normalize_text(last["_q_full"]))
-        close = False
-        if row["ts"] and last["ts"]:
-            close = abs(row["ts"] - last["ts"]) <= timedelta(seconds=10)
-        if same_id and same_q and close:
-            deduped[-1] = row  # 최신으로 교체
-        else:
-            deduped.append(row)
-    return deduped
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Q/A rows coercion (handles minimal JSON as well)
 # ─────────────────────────────────────────────────────────────────────────────
 def _coerce_to_rows(items: List[Any]) -> List[Dict[str, Any]]:
-    """
-    If items are already minimal Q/A dicts (question/answer present), convert directly.
-    Otherwise, treat as LangSmith runs and extract.
-    """
     if items and isinstance(items, list) and isinstance(items[0], dict) and (
         "question" in items[0] and "answer" in items[0]
     ):
@@ -341,18 +393,23 @@ def _coerce_to_rows(items: List[Any]) -> List[Dict[str, Any]]:
             q = _normalize_text(str(x.get("question", "")))
             a = _strip_source_lines(str(x.get("answer", "")))
             rid = str(x.get("id", "")) if x.get("id") is not None else ""
+
+            # 🔹 여기 추가: contexts 표시용
+            ctxs = x.get("contexts") or []
+            ctx_str = _format_contexts(ctxs, max_items=5)
+
             rows.append({
                 "ts": ts,
                 "시각(KST)": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
                 "ID": rid,
                 "질문": _clip(q, 500),
                 "답변": _clip(a, 800),
+                "참고문서": ctx_str,     # 👈 표에 보일 컬럼
                 "_q_full": q,
                 "_a_full": a,
+                "_contexts": ctxs,       # 👈 다운로드용 원본
             })
-        # 이미 경량화 파일은 보통 dedup 되어 있으니 추가 dedup 없이 리턴
         return rows
-
     # Fallback: full runs
     reps = _select_representative_runs([r for r in items if isinstance(r, dict)])
     return _to_rows_from_runs(reps)
@@ -435,10 +492,13 @@ def admin_page():
 
     st.markdown(f"**Results:** {total:,}  ·  Showing {start+1}-{end}  ·  Page {page}/{total_pages}")
 
-    view_cols = ["시각(KST)", "ID", "질문", "답변"]
+    view_cols = ["시각(KST)", "ID", "질문", "답변", "참고문서"]
     if pd is not None:
         df = pd.DataFrame([{k: r[k] for k in view_cols} for r in page_rows])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df, use_container_width=True, hide_index=True,
+            column_config={"참고문서": st.column_config.TextColumn(width="large")}
+        )
     else:
         st.table([{k: r[k] for k in view_cols} for r in page_rows])
 
@@ -470,7 +530,13 @@ def admin_page():
         st.download_button("⬇️ CSV (filtered)", csv_bytes, file_name="qa_filtered.csv", mime="text/csv")
     with colB:
         payload = [
-            {"timestamp_kst": r["시각(KST)"], "id": r["ID"], "question": r["_q_full"], "answer": r["_a_full"]}
+    {
+        "timestamp_kst": r["시각(KST)"],
+        "id": r["ID"],
+        "question": r["_q_full"],
+        "answer": r["_a_full"],
+        "contexts": r.get("_contexts", [])  # 👈 추가
+    }
             for r in filtered
         ]
         jb = io.BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
