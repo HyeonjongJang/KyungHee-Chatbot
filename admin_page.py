@@ -460,7 +460,11 @@ def admin_page():
     else:
         today = date.today()
         dmin = dmax = today
-    d1, d2 = st.sidebar.date_input("날짜 범위", value=(dmin, dmax), min_value=dmin, max_value=dmax)
+    ret = st.sidebar.date_input("날짜 범위", value=(dmin, dmax), min_value=dmin, max_value=dmax)
+    if isinstance(ret, tuple):
+        d1, d2 = ret
+    else:
+        d1 = d2 = ret
 
     id_kw = st.sidebar.text_input("ID 포함", value="")
 
