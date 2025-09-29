@@ -565,7 +565,6 @@ def second_page():
                         return f"{x*100:.1f}%" if isinstance(x, (int, float)) else "N/A"
                     colA.metric("충실도 (근거 대비 일치도)", _pct(f))
                     colB.metric("답변_관련성 (질문 대비 적합도)", _pct(r))
-                    st.caption("※ 정답 데이터 없이 ragas로 산출한 상대적 점수입니다. 1.00에 가까울수록 좋습니다.")
 
                 # 5) 미리보기 (동일 리스트 사용)
                 _render_context_previews(coerced, max_items=len(coerced) if coerced else 0)
