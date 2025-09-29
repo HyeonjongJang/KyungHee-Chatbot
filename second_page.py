@@ -1,6 +1,13 @@
-# --- second_page.py (drop-in; cohort-aware & reliable Source display) ---
+# --- second_page.py (drop-in; cohort-aware, reliable Source display, robust file finder) ---
 import os
 import re
+import mimetypes
+import ntpath
+import unicodedata
+import uuid
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple
+
 try:
     from langchain.schema import Document as LC_Document
 except Exception:
@@ -8,12 +15,7 @@ except Exception:
         from langchain_core.documents import Document as LC_Document
     except Exception:
         LC_Document = None
-import mimetypes
-import ntpath
-import unicodedata
-import uuid
-from pathlib import Path
-from typing import Optional, List
+
 try:
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import faithfulness as ragas_faithfulness, answer_relevancy as ragas_answer_rel
@@ -30,7 +32,6 @@ from langsmith import Client
 from streamlit_feedback import streamlit_feedback
 
 client = Client()
-
 APP_DIR = Path(__file__).resolve().parent
 
 CATEGORIES = {
@@ -41,32 +42,39 @@ CATEGORIES = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# File search settings
+# ──────────────────────────────────────────────────────────────────────────────
+# 원문 PDF를 찾기 위해 스캔할 루트들(필요시 여기에 경로 추가)
+SEARCH_ROOTS_DEFAULT = [
+    APP_DIR / "past_documents",
+    APP_DIR / "todo_documents",
+    APP_DIR / "docs",                   # ← docs 아래 originals/연도/카테고리 등 모두 커버
+    APP_DIR / "backup",
+    Path.cwd() / "past_documents",
+    Path.cwd() / "todo_documents",
+    Path.cwd() / "docs",
+    Path.cwd() / "backup",
+]
+
+SEARCH_EXTS = {".pdf", ".PDF"}  # 필요시 .docx 등 추가
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False, ttl=600)
 def _compute_ragas_scores(question: str, answer: str, contexts_snippets: list[str]) -> dict:
-    """
-    ragas로 충실도(faithfulness), 답변_관련성(answer_relevancy) 계산.
-    반환: {"faithfulness": float|None, "answer_relevancy": float|None}
-    """
     if not _HAS_RAGAS:
-        # ragas 미설치 시, 간단한 대체치(겹침도)라도 돌려준다
         try:
             approx = _overlap_score(answer, " ".join(contexts_snippets))
         except Exception:
             approx = 0.0
         return {"faithfulness": None, "answer_relevancy": approx}
-
-    # ragas 입력: datasets.Dataset({"question","answer","contexts"})
-    # contexts는 문자열 리스트여야 함
     samples = [{"question": question or "",
                 "answer": answer or "",
                 "contexts": [s or "" for s in contexts_snippets] or [""]}]
     ds = HF_Dataset.from_list(samples)
-
     res = ragas_evaluate(ds, metrics=[ragas_faithfulness, ragas_answer_rel])
-    # res는 datasets.Dataset / pandas.DataFrame 유사: 컬럼 이름 그대로 접근
     try:
         f = float(res["faithfulness"][0])
     except Exception:
@@ -85,6 +93,18 @@ def _basename_crossplat(p: str) -> str:
     name = name.split("/")[-1].split("\\")[-1]
     return unicodedata.normalize("NFC", name)
 
+def _strip_source_prefix(snippet: str, fname: str) -> str:
+    if not snippet:
+        return ""
+    if fname:
+        snippet = re.sub(
+            rf"(?im)^\s*Source\s*:?\s*{re.escape(fname)}\s*",
+            "",
+            snippet
+        )
+    snippet = re.sub(r"(?im)^\s*Source\s*:\s*", "", snippet, count=1)
+    return snippet.strip()
+
 def _coerce_ctx_item(d) -> dict:
     """
     LangChain Document / dict / 문자열 표현까지 모두 받아
@@ -93,7 +113,6 @@ def _coerce_ctx_item(d) -> dict:
     """
     item = {"filename": "", "page": "", "url": "", "snippet": ""}
 
-    # 0) 공통 유틸
     def _basename(s: str) -> str:
         if not s:
             return ""
@@ -102,19 +121,6 @@ def _coerce_ctx_item(d) -> dict:
         s = s.split("/")[-1].split("\\")[-1]
         return s
 
-    def _strip_source_prefix(snippet: str, fname: str) -> str:
-        # "Source : 파일명" / "Source: 파일명" 접두사 제거(첫 줄 위주)
-        if not snippet:
-            return ""
-        if fname:
-            snippet = re.sub(
-                rf"(?im)^\s*Source\s*:?\s*{re.escape(fname)}\s*",
-                "",
-                snippet
-            )
-        snippet = re.sub(r"(?im)^\s*Source\s*:\s*", "", snippet, count=1)
-        return snippet.strip()
-
     # 1) dict 형태
     if isinstance(d, dict):
         meta = d.get("metadata") or {}
@@ -122,26 +128,16 @@ def _coerce_ctx_item(d) -> dict:
         fname = meta.get("filename") or _basename(meta.get("source", ""))
         page  = meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or ""
         url   = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
-
-        # page_content 첫 줄에서 filename 백업 추출
         if not fname and text:
             first = text.splitlines()[0].strip()
             if first.lower().startswith("source"):
                 maybe = first.split(":", 1)[-1].strip()
                 fname = _basename(maybe)
-
-        # 스니펫 정리
         text = _strip_source_prefix(text, fname)
         text = re.sub(r"\s+", " ", text).strip()
         if len(text) > 280:
             text = text[:279] + "…"
-
-        item.update({
-            "filename": fname or "",
-            "page": str(page) if page is not None else "",
-            "url": url or "",
-            "snippet": text
-        })
+        item.update({"filename": fname or "", "page": str(page) if page is not None else "", "url": url or "", "snippet": text})
         return item
 
     # 2) LangChain Document 객체
@@ -151,62 +147,37 @@ def _coerce_ctx_item(d) -> dict:
         fname = meta.get("filename") or _basename(meta.get("source", ""))
         page  = meta.get("page") or meta.get("page_number") or meta.get("pageIndex") or ""
         url   = meta.get("url") or meta.get("source_url") or meta.get("document_url") or ""
-
         if not fname and text:
             first = text.splitlines()[0].strip()
             if first.lower().startswith("source"):
                 maybe = first.split(":", 1)[-1].strip()
                 fname = _basename(maybe)
-
         text = _strip_source_prefix(text, fname)
         text = re.sub(r"\s+", " ", text).strip()
         if len(text) > 280:
             text = text[:279] + "…"
-
-        item.update({
-            "filename": fname or "",
-            "page": str(page) if page is not None else "",
-            "url": url or "",
-            "snippet": text
-        })
+        item.update({"filename": fname or "", "page": str(page) if page is not None else "", "url": url or "", "snippet": text})
         return item
 
-    # 3) 문자열 표현 (예: "Document(page_content='...', metadata={...})")
+    # 3) 문자열 표현
     s = str(d or "")
-    # page_content='...'(또는 "page_content=\"...\"") 구간을 파싱
     m = re.search(r"page_content\s*=\s*['\"](.*?)['\"]\s*,", s, flags=re.S)
     text = m.group(1) if m else s
-
-    # filename 후보: "Source : 파일명" 첫 줄에서 추출
     fname = ""
     first = text.splitlines()[0].strip() if text else ""
     if first.lower().startswith("source"):
         maybe = first.split(":", 1)[-1].strip()
         fname = _basename(maybe)
-
-    # page 후보: metadata={'page': N} 등 문자열에서 파싱 시도
     mpage = re.search(r"[{,]\s*['\"]?(page|page_number|pageIndex)['\"]?\s*:\s*['\"]?(\d+)['\"]?", s)
     page = mpage.group(2) if mpage else ""
-
-    # 정리
     text = _strip_source_prefix(text, fname)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) > 280:
         text = text[:279] + "…"
-
-    item.update({
-        "filename": fname or "",
-        "page": str(page) if page is not None else "",
-        "url": "",
-        "snippet": text
-    })
+    item.update({"filename": fname or "", "page": str(page) if page is not None else "", "url": "", "snippet": text})
     return item
 
 def _overlap_score(a: str, b: str) -> float:
-    """
-    답변(a)과 스니펫(b)의 토큰 교집합 비율을 간단히 계산.
-    길이 2 이상 토큰만 사용.
-    """
     ta = {t for t in re.findall(r"\w+", (a or "").lower()) if len(t) >= 2}
     tb = {t for t in re.findall(r"\w+", (b or "").lower()) if len(t) >= 2}
     if not ta or not tb:
@@ -214,13 +185,108 @@ def _overlap_score(a: str, b: str) -> float:
     inter = len(ta & tb)
     return inter / (len(tb) or 1)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Robust file finder (indexed & fuzzy)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _norm_key(s: str) -> str:
+    """확장자 포함한 기본 키(정확 일치용)"""
+    return unicodedata.normalize("NFC", s or "").casefold().strip()
+
+def _norm_key_noext(s: str) -> str:
+    """확장자 제거 + 단순화 키(퍼지 후보용)"""
+    s = unicodedata.normalize("NFC", s or "").casefold().strip()
+    s = re.sub(r"\.[a-z0-9]+$", "", s)                  # remove extension
+    s = re.sub(r"[\s_\-]+", "", s)                      # remove spaces/_/-
+    s = re.sub(r"[(){}\[\]]", "", s)                    # remove brackets
+    return s
+
+def _tokenize_name(s: str) -> List[str]:
+    """한글/영문/숫자 토큰화 (길이>=2만 남김)"""
+    s = unicodedata.normalize("NFC", s or "")
+    toks = re.findall(r"[0-9A-Za-z가-힣]+", s)
+    return [t for t in (toks or []) if len(t) >= 2]
+
+@st.cache_resource(show_spinner=False)
+def _build_source_index(extra_roots: Optional[List[Path]] = None) -> Dict[str, Dict]:
+    """
+    전체 PDF 파일을 스캔해 인덱스를 구성.
+    반환:
+      {
+        "exact": { norm_fullname : path_str, ... },
+        "noext": { norm_noext : [path_str, ...] },
+        "tokens": { path_str : set(tokens) }
+      }
+    """
+    roots: List[Path] = []
+    seen = set()
+    for r in (SEARCH_ROOTS_DEFAULT + (extra_roots or [])):
+        try:
+            rp = r.resolve()
+            if rp.exists() and rp.is_dir() and str(rp) not in seen:
+                roots.append(rp)
+                seen.add(str(rp))
+        except Exception:
+            continue
+
+    exact: Dict[str, str] = {}
+    noext: Dict[str, List[str]] = {}
+    tokens: Dict[str, set] = {}
+
+    for root in roots:
+        try:
+            for p in root.rglob("*"):
+                if p.is_file() and p.suffix in SEARCH_EXTS:
+                    name = p.name
+                    k_exact = _norm_key(name)
+                    exact[k_exact] = str(p)
+                    k_noext = _norm_key_noext(name)
+                    noext.setdefault(k_noext, []).append(str(p))
+                    tokens[str(p)] = set(_tokenize_name(name))
+        except Exception:
+            continue
+
+    return {"exact": exact, "noext": noext, "tokens": tokens}
+
+def _find_source_file(filename: str) -> Optional[str]:
+    """
+    1) 정확 일치(NFC/casefold)
+    2) 확장자/공백/_/- 제거 일치
+    3) 토큰 겹침 최대 후보(퍼지)
+    """
+    if not filename:
+        return None
+    idx = _build_source_index()
+
+    # 1) exact
+    k = _norm_key(filename)
+    if k in idx["exact"]:
+        return idx["exact"][k]
+
+    # 2) noext (확장자, 공백/언더스코어/대시 무시)
+    k2 = _norm_key_noext(filename)
+    if k2 in idx["noext"]:
+        # 여러 개면 가장 짧은 경로(가까운 폴더)를 우선
+        cands = sorted(idx["noext"][k2], key=lambda x: len(x))
+        return cands[0] if cands else None
+
+    # 3) fuzzy by token overlap
+    want = set(_tokenize_name(filename))
+    best_path, best_score = None, 0
+    if want:
+        for path, toks in idx["tokens"].items():
+            if not toks:
+                continue
+            score = len(want & toks)
+            if score > best_score:
+                best_score, best_path = score, path
+    return best_path
+
+# ──────────────────────────────────────────────────────────────────────────────
+# UI: context previews with download buttons
+# ──────────────────────────────────────────────────────────────────────────────
+
 def _render_context_previews(contexts: list, max_items: int = 5):
-    """
-    컨텍스트 문서 조각을 예쁘게 렌더링합니다.
-    - 파일명, 페이지, 스니펫
-    - (있다면) URL 열기 버튼
-    - ⚡ 미리보기 카드마다 해당 파일 '개별 다운로드' 버튼 추가
-    """
     if not contexts:
         return
     with st.expander("📑 참고한 문서 조각 (미리보기)"):
@@ -229,18 +295,15 @@ def _render_context_previews(contexts: list, max_items: int = 5):
             header = c["filename"] or "문서"
             if c["page"]:
                 header += f" (p.{c['page']})"
-
             st.markdown(f"**{i}. {header}**")
             st.markdown(f"> {c['snippet']}")
 
-            # 버튼 영역: URL 열기 / 개별 다운로드
             bcol1, bcol2 = st.columns([1, 1], vertical_alignment="center")
-
             with bcol1:
                 if c["url"]:
                     st.link_button("원문 열기", c["url"], use_container_width=True)
                 else:
-                    st.caption(" ")  # 자리 맞춤
+                    st.caption(" ")
 
             with bcol2:
                 fname = c["filename"]
@@ -248,14 +311,13 @@ def _render_context_previews(contexts: list, max_items: int = 5):
                     found_path = _find_source_file(fname)
                     if found_path and os.path.exists(found_path):
                         mime, _ = mimetypes.guess_type(fname)
-                        # 각 카드마다 고유 key 필요: dialog_identifier + index + filename
                         dl_key = f"ctxdl_{st.session_state.get('dialog_identifier','')}_{i}_{fname}"
                         with open(found_path, "rb") as f:
                             st.download_button(
                                 label=f"📥 {fname}",
                                 data=f,
                                 file_name=fname,
-                                mime=mime or "application/octet-stream",
+                                mime=mime or "application/pdf",
                                 key=dl_key,
                                 use_container_width=True,
                             )
@@ -263,36 +325,9 @@ def _render_context_previews(contexts: list, max_items: int = 5):
                         st.caption("⚠️ 로컬에서 파일을 찾을 수 없습니다.")
                 else:
                     st.caption("⚠️ 파일명이 없어 다운로드를 제공할 수 없습니다.")
-
             st.divider()
 
-
-def _find_source_file(filename: str) -> Optional[str]:
-    """past_documents / todo_documents의 모든 하위폴더를 재귀적으로 탐색"""
-    if not filename:
-        return None
-    target_nfc = unicodedata.normalize("NFC", filename)
-
-    search_dirs = [
-        APP_DIR / "past_documents",
-        APP_DIR / "todo_documents",
-        Path.cwd() / "past_documents",
-        Path.cwd() / "todo_documents",
-    ]
-    for d in search_dirs:
-        try:
-            if not d.exists() or not d.is_dir():
-                continue
-            for entry in d.rglob("*"):
-                if entry.is_file():
-                    if unicodedata.normalize("NFC", entry.name) == target_nfc:
-                        return str(entry)
-        except FileNotFoundError:
-            continue
-    return None
-
 def _extract_source_filenames(contexts) -> List[str]:
-    """컨텍스트 문서 목록에서 파일명만 중복 없이 추출 (dict/Document/str 모두 지원)"""
     def _basename(p: str) -> str:
         if not p:
             return ""
@@ -304,7 +339,6 @@ def _extract_source_filenames(contexts) -> List[str]:
     seen, out = set(), []
     for d in contexts or []:
         name = ""
-        # 1) dict
         if isinstance(d, dict):
             meta = d.get("metadata") or {}
             name = meta.get("filename") or _basename(meta.get("source", ""))
@@ -314,7 +348,6 @@ def _extract_source_filenames(contexts) -> List[str]:
                     maybe = first.split(":", 1)[-1].strip()
                     name = _basename(maybe)
         else:
-            # 2) Document (있다면)
             if LC_Document is not None and isinstance(d, LC_Document):
                 meta = getattr(d, "metadata", {}) or {}
                 name = meta.get("filename") or _basename(meta.get("source", ""))
@@ -323,7 +356,6 @@ def _extract_source_filenames(contexts) -> List[str]:
                     if first.lower().startswith("source"):
                         maybe = first.split(":", 1)[-1].strip()
                         name = _basename(maybe)
-            # 3) 문자열 표현
             else:
                 s = str(d or "")
                 m = re.search(r"page_content\s*=\s*['\"](.*?)['\"]\s*,", s, flags=re.S)
@@ -332,23 +364,18 @@ def _extract_source_filenames(contexts) -> List[str]:
                 if first.lower().startswith("source"):
                     maybe = first.split(":", 1)[-1].strip()
                     name = _basename(maybe)
-
         if name and name not in seen:
             seen.add(name)
             out.append(name)
     return out
 
 def _list_available_cohorts(slug: str) -> List[str]:
-    """
-    faiss_db/<slug>/<cohort>/index.faiss 구조에서 사용 가능한 cohort 목록을 스캔.
-    """
     base = APP_DIR / "faiss_db" / slug
     out = []
     if base.exists():
         for p in base.iterdir():
             if p.is_dir() and (p / "index.faiss").exists():
                 out.append(p.name)
-    # 연도 내림차순 정렬(숫자 우선)
     try:
         out.sort(key=lambda x: int(x), reverse=True)
     except Exception:
@@ -356,9 +383,6 @@ def _list_available_cohorts(slug: str) -> List[str]:
     return out
 
 def _infer_default_cohort(student_id: Optional[str], cohorts: List[str]) -> int:
-    """
-    student_id에서 4자리 혹은 앞 2자리(→20YY)로 기본 연도 유추. 없으면 0.
-    """
     if not cohorts:
         return 0
     if not student_id:
@@ -366,7 +390,7 @@ def _infer_default_cohort(student_id: Optional[str], cohorts: List[str]) -> int:
     digits = "".join(ch for ch in str(student_id) if ch.isdigit())
     candidates = []
     if len(digits) >= 4:
-        candidates.append(digits[:4])  # 2020, 2021 ...
+        candidates.append(digits[:4])
     if len(digits) >= 2:
         yy = int(digits[:2])
         if 0 <= yy <= 99:
@@ -377,17 +401,17 @@ def _infer_default_cohort(student_id: Optional[str], cohorts: List[str]) -> int:
     return 0
 
 def _strip_llm_source_lines(text: str) -> str:
-    """
-    LLM이 임의로 출력한 'Source:' 라인을 제거.
-    실제 출처 표기는 contexts에서 추출해 아래에서 별도로 붙인다.
-    """
     return re.sub(r"(?im)^\s*source\s*:\s*.*$", "", text).strip()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Page
 # ──────────────────────────────────────────────────────────────────────────────
+
 def second_page():
     st.header("Kyung Hee University's Regulations Chatbot")
+
+    # 한 번만 구축되는 파일 인덱스(캐시) 미리 준비
+    _build_source_index()
 
     # --- 카테고리 선택 UI ---
     st.subheader("검색 범주 선택")
@@ -405,7 +429,7 @@ def second_page():
     changed_category = (st.session_state["kb_category_slug"] != sel_slug)
     st.session_state["kb_category_slug"] = sel_slug
 
-    # --- 코호트(입학년도) 선택 (학부/대학원 시행세칙만) ---
+    # --- 코호트 선택(학부/대학원 시행세칙만) ---
     st.session_state.setdefault("kb_cohort", {})
     cohort = None
     cohort_changed = False
@@ -428,7 +452,6 @@ def second_page():
         cohort_changed = (prev != cohort)
         st.session_state["kb_cohort"][sel_slug] = cohort
 
-    # (카테고리, 코호트) 키
     vs_key = f"{sel_slug}:{cohort or 'all'}"
 
     # 상단 버튼
@@ -443,7 +466,6 @@ def second_page():
             st.rerun()
     with col2:
         if st.button("Refresh", key="refresh"):
-            # 현재 (카테고리, 코호트) 히스토리만 리셋
             if "chat_histories" in st.session_state:
                 st.session_state["chat_histories"][vs_key] = []
             st.session_state.pop("dialog_identifier", None)
@@ -453,11 +475,9 @@ def second_page():
     st.session_state.setdefault("dialog_identifier", uuid.uuid4())
     st.session_state.setdefault("vector_stores", {})
     st.session_state.setdefault("chat_histories", {})
-
-    # 히스토리 준비
     st.session_state["chat_histories"].setdefault(vs_key, [])
 
-    # 벡터스토어 준비 (카테고리+코호트 별 1회 로드&캐시)
+    # 벡터스토어 준비
     vs = st.session_state["vector_stores"].get(vs_key)
     if (vs is None) or changed_category or cohort_changed:
         try:
@@ -474,7 +494,7 @@ def second_page():
                 st.error(f"선택한 범주('{sel_label}')에 대한 벡터 DB가 없습니다. 먼저 add_document.py로 구축해 주세요.")
             return
 
-    # 이전 대화 렌더링(선택된 카테고리+코호트만)
+    # 이전 대화 렌더링
     for message in st.session_state["chat_histories"][vs_key]:
         role = "AI" if isinstance(message, AIMessage) else "Human"
         with st.chat_message("AI" if role == "AI" else "Human"):
@@ -503,29 +523,20 @@ def second_page():
         with collect_runs() as cb:
             with st.spinner("Thinking..."):
                 raw_answer, contexts = get_response(user_input)
-
-                # 1) LLM이 임의로 출력한 Source 라인 제거
                 answer = _strip_llm_source_lines(raw_answer)
 
-                # 2) 상위 컨텍스트 선별 파라미터
+                # 상위 컨텍스트 선별
                 TOPK_CONTEXTS  = st.session_state.get("topk_ctx", 5) if "topk_ctx" in st.session_state else 5
                 MIN_OVERLAP    = 0.12
                 MAX_SOURCES    = TOPK_CONTEXTS
 
-                # (A) 전부 정규화
                 normalized = [_coerce_ctx_item(d) for d in (contexts or [])]
-
-                # (B) 스코어 계산(답변과의 겹침도)
                 scored = []
                 for c in normalized:
                     fname = (c.get("filename") or "").strip()
                     score = _overlap_score(answer, c.get("snippet", ""))
                     scored.append({**c, "_score": score, "_has_name": bool(fname)})
-
-                # (C) 임계치 이상만
                 filtered = [c for c in scored if c["_score"] >= MIN_OVERLAP]
-
-                # (D) 파일명 기준 집계(같은 파일은 최고 점수 1개만)
                 by_file = {}
                 for c in filtered:
                     fname = (c.get("filename") or "").strip()
@@ -534,49 +545,39 @@ def second_page():
                     best = by_file.get(fname)
                     if (best is None) or (c["_score"] > best["_score"]):
                         by_file[fname] = c
-
-                # (E) 상위 N개 선택
                 top_by_file = sorted(by_file.values(), key=lambda x: x["_score"], reverse=True)[:MAX_SOURCES]
-
-                # (F) 미리보기/Source에 쓸 리스트
                 coerced = top_by_file
 
-                # 3) Source 라인
+                # Source 라인
                 source_files = [c["filename"] for c in coerced if c.get("filename")]
                 if source_files:
                     answer = f"{answer}\n\nSource: " + ", ".join(source_files)
 
-                # ★★★ 3-1) RAGAS 품질 점수 계산 추가 ★★★
-                # ragas contexts는 "문자열 리스트"여야 하므로, 현재 선택된 조각들의 snippet만 추출
-                ragas_snippets = [c.get("snippet", "") for c in coerced][:5]  # k=5
+                # RAGAS (옵션)
+                ragas_snippets = [c.get("snippet", "") for c in coerced][:5]
                 scores = _compute_ragas_scores(user_input, answer, ragas_snippets)
 
-                # 4) 화면 출력
+                # 출력
                 st.chat_message("AI").write(answer)
 
-                # ★★★ 4-1) 점수 UI 표시(메트릭) ★★★
                 with st.container(border=True):
                     st.markdown("#### 🧪 응답 품질 점수 (RAGAS)")
                     colA, colB = st.columns(2)
                     f = scores.get("faithfulness")
                     r = scores.get("answer_relevancy")
-                    # 0~1 범위를 %로 표기 (None이면 "N/A")
-                    def _pct(x):
-                        return f"{x*100:.1f}%" if isinstance(x, (int, float)) else "N/A"
+                    def _pct(x): return f"{x*100:.1f}%" if isinstance(x, (int, float)) else "N/A"
                     colA.metric("충실도 (근거 대비 일치도)", _pct(f))
                     colB.metric("답변_관련성 (질문 대비 적합도)", _pct(r))
 
-                # 5) 미리보기 (동일 리스트 사용)
                 _render_context_previews(coerced, max_items=len(coerced) if coerced else 0)
 
-
-                # 히스토리 저장 (카테고리+코호트)
+                # 히스토리 저장
                 st.session_state["chat_histories"][vs_key].append(HumanMessage(content=user_input))
                 st.session_state["chat_histories"][vs_key].append(AIMessage(content=answer))
 
             st.session_state.run_id = cb.traced_runs[0].id if cb.traced_runs else None
 
-    # --------- Feedback ---------
+    # 피드백
     feedback_option = "thumbs"
     if st.session_state.get("run_id"):
         run_id = st.session_state.run_id
