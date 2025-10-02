@@ -1,8 +1,11 @@
-# requirements.txt 맨 위
---extra-index-url https://download.pytorch.org/whl/cpu
 --only-binary=:all:
+--timeout=120
+--extra-index-url https://pypi.org/simple
 
-torch==2.8.0
+# PyTorch: CPU 휠을 URL로 '직접' 고정 (저장 단계에서 옵션 무시되어도 안전)
+torch @ https://download.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl
+
+# 벡터 라이브러리
 faiss-cpu==1.12.0
 
 # Core LangChain & LLM Libraries
@@ -18,12 +21,11 @@ python-dotenv==1.0.1
 pydantic==2.10.6
 tiktoken==0.7.0
 
-# Vector Store & Embeddings
-faiss-cpu
+# Embeddings
 sentence-transformers==3.0.0
 
 # Retrieval & Ranking
-rank_bm25
+rank_bm25==0.2.2
 
 # UI Framework
 streamlit==1.38.0
