@@ -1,8 +1,7 @@
 --only-binary=:all:
---timeout=120
---extra-index-url https://pypi.org/simple
+--default-timeout=120
 
-# PyTorch: CPU 휠을 URL로 '직접' 고정 (저장 단계에서 옵션 무시되어도 안전)
+# PyTorch: CPU 전용 휠을 URL로 고정 (CUDA 방지)
 torch @ https://download.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl
 
 # 벡터 라이브러리
