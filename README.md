@@ -76,6 +76,15 @@ streamlit run main.py
 
 ---
 
+## Development Roadmap (KG-first, Doc-backed)
+This repo is being upgraded to a KG-first architecture.
+New folders:
+- `ontology/`: OWL schema (`uni.ttl`) and SHACL shapes (`shapes.ttl`)
+- `ingest/`: RDF export/validation scripts
+- `tests/regression/`: RAG regression queries
+- `docs/`: URI rule & metadata schema (`schema_and_uri.md`)
+Branch: `feat/pipeline-v2` for ongoing work.
+
 ## 📬 Contact
 
 For any inquiries, please contact:

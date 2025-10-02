@@ -1,0 +1,17 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix uni: <http://example.org/uni#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# 예: 효력기간의 from<=until (확장 예정)
+uni:TemporalScopeShape a sh:NodeShape ;
+  sh:targetClass uni:TemporalScope ;
+  sh:property [
+    sh:path uni:effectiveFrom ;
+    sh:datatype xsd:date ;
+    sh:minCount 0
+  ] ;
+  sh:property [
+    sh:path uni:effectiveUntil ;
+    sh:datatype xsd:date ;
+    sh:minCount 0
+  ] .

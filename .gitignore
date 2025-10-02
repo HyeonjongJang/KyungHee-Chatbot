@@ -7,4 +7,7 @@ backup/
 mp3/
 past/
 student_profile/
-traces/
+traces/*.tdb
+*.ttl.bak
+*.nt
+backup/

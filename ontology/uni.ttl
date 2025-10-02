@@ -1,0 +1,25 @@
+@prefix uni: <http://example.org/uni#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Classes
+uni:Norm a rdfs:Class .
+uni:Article a rdfs:Class .
+uni:Clause a rdfs:Class .
+uni:Version a rdfs:Class .
+uni:Program a rdfs:Class .
+uni:Cohort a rdfs:Class .
+uni:TemporalScope a rdfs:Class .
+
+# Object properties
+uni:overrides a rdf:Property .
+uni:cites a rdf:Property .
+uni:appliesToProgram a rdf:Property .
+uni:appliesToCohort a rdf:Property .
+uni:hasExceptionFor a rdf:Property .
+
+# Data properties
+uni:effectiveFrom a rdf:Property .
+uni:effectiveUntil a rdf:Property .
+uni:minCredits a rdf:Property .
