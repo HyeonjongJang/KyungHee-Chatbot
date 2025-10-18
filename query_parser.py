@@ -5,11 +5,6 @@ import re
 
 from lark import Lark, Transformer, v_args
 
-# --------------------------------------------------------------------
-# Grammar
-# - Earley + explicit RANGE separator to avoid reduce/reduce conflicts
-# - Keep tokens simple; push specifics to transformer where needed
-# --------------------------------------------------------------------
 GRAMMAR = r"""
 ?start: query
 ?query: piece+
@@ -52,7 +47,6 @@ WORD : /[^\s]+/
 %ignore WS
 """
 
-# 표준 프로그램 코드 매핑 (대문자/언더스코어 정규형)
 PROG_MAP = {
     "IME": "IME_MS",
     "MS": "MS",
@@ -64,46 +58,33 @@ PROG_MAP = {
     "대학원": "GRAD",
 }
 
-
 @v_args(inline=True)
 class QTransform(Transformer):
-    """
-    Transformer that builds two dicts:
-      - meta: articleNumber, clauseNumber, page, program, cohort, contentType(=table) ...
-      - hints: wants_table/annex/appendix, refDate, articleRanges, pageRanges, keywords ...
-    """
     def __init__(self):
         self.meta: Dict[str, Any] = {}
         self.hints: Dict[str, Any] = {}
         self.keywords: List[str] = []
 
-    # -------- helpers --------
     def _parse_art(self, text: str):
-        # e.g., "제15조", "제15조의2", "15조", "제 7 조 의 3"
         m = re.search(r"\d{1,3}", text)
         if m:
             self.meta["articleNumber"] = int(m.group(0))
         m2 = re.search(r"의\s*(\d{1,2})", text)
         if m2:
-            # "제15조의2" → clause-like subindex
             self.meta["clauseNumber"] = int(m2.group(1))
 
-    # -------- nodes --------
     def article(self, tok):
         self._parse_art(str(tok))
         return None
 
     def clause(self, *items):
-        # "2항", "2항 및 3항"
         ints = [int(x) for x in items if hasattr(x, "type") and x.type == "INT"]
         if ints:
             self.meta["clauseNumbers"] = sorted(set(ints))
-            # 대표 항 하나를 clauseNumber로
             self.meta.setdefault("clauseNumber", ints[0])
         return None
 
     def article_range(self, a1, _sep, a2):
-        # "제15조 ~ 제17조", "제15조의2 - 제17조의1"
         def _to_num(s: str) -> int:
             m = re.search(r"\d{1,3}", s)
             return int(m.group(0)) if m else None
@@ -111,21 +92,17 @@ class QTransform(Transformer):
         right = _to_num(str(a2))
         if left is not None and right is not None:
             self.hints.setdefault("articleRanges", []).append((left, right))
-            # 검색 필터의 기본 anchor로 left를 채워주면 recall이 좋아짐
             self.meta.setdefault("articleNumber", left)
         return None
 
     def page_range(self, ptoken, first, maybe_range_int=None):
-        # "p. 12", "페이지 3 - 5"
         a = int(first)
         if maybe_range_int is None:
             self.meta["page"] = a
         else:
-            # maybe_range_int는 ("---", INT) 형태로 들어옴 → 마지막 토큰이 INT
             if hasattr(maybe_range_int, "type") and maybe_range_int.type == "INT":
                 b = int(maybe_range_int)
             else:
-                # Earley 구성상 tuple처럼 들어오는 경우 방어
                 s = str(maybe_range_int)
                 m = re.search(r"\d+", s)
                 b = int(m.group(0)) if m else a
@@ -147,7 +124,6 @@ class QTransform(Transformer):
 
     def cohort(self, tok):
         s = str(tok)
-        # 2023학번 / 23학번
         m4 = re.search(r"(20\d{2})", s)
         m2 = re.search(r"\b(\d{2})\b", s) if not m4 else None
         year = None
@@ -179,28 +155,21 @@ class QTransform(Transformer):
         return None
 
     def query(self, _):
-        # 후처리: clauseNumbers만 있고 대표가 없으면 하나 세워주기
         if "clauseNumbers" in self.meta and "clauseNumber" not in self.meta:
             self.meta["clauseNumber"] = self.meta["clauseNumbers"][0]
         self.hints["keywords"] = self.keywords
         return {"meta": self.meta, "hints": self.hints}
 
-
-# Earley는 모호성에 강함. dynamic_complete로 토큰화-파싱 유연성↑
+# Earley parser: robust against ambiguity
 _parser = Lark(GRAMMAR, parser="earley", lexer="dynamic_complete")
 
-
 def parse_query(text: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """
-    Robust parser with safe fallback to regex-based query_router().
-    Always returns (meta, hints) dicts.
-    """
     try:
         tree = _parser.parse(text or "")
         tx = QTransform()
         res = tx.transform(tree)
         return res["meta"], res["hints"]
     except Exception:
-        # 안전 폴백: 정규식 라우터
+        # Safe fallback: regex router
         from query_router import query_router
         return query_router(text)
