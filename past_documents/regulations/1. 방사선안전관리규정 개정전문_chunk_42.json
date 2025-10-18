@@ -1,11 +1,18 @@
 {
-    "text": "| 측정일자 | None | 년 월 일 | 측정자 | None | (인) |\n| --- | --- | --- | --- | --- | --- |\n| 방사선관리구역 |  |  |  |  |  |\n| 측정\n장비 | 공간선량측정기 |  | 표면오염감시기 |  |  |\n|  | 제작회사/모델 |  | 제작회사/모델 |  |  |\n|  | 일련번호 |  | 일련번호 |  |  |\n|  | 검교정일자 |  | 검교정일자 |  |  |\n|  | 교정인자 |  | 교정인자 |  |  |\n| 측정\n결과 | 측정지점 | 방사선량률 |  | 표면오염도 |  |\n|  | 1 | μSv/h |  | Bq/cm2 |  |\n|  | 2 | μSv/h |  | Bq/cm2 |  |\n|  | 3 | μSv/h |  | Bq/cm2 |  |\n|  | 4 | μSv/h |  | Bq/cm2 |  |\n|  | B.G | μSv/h |  | Bq/cm2 |  |\n| 측정\n지점 | (측정위치 및 거리는 현장상황에 맞게 적용할 것) |  |  |  |  |\n",
-    "metadata": {
-        "document_title": "1. 방사선안전관리규정 개정전문",
-        "content_type": "table",
-        "page_number": 27,
-        "text_as_html": null,
-        "article_number": "제28조",
-        "article_title": "기타"
-    }
+  "text": "| 측정일자 |  | 년 월 일 | 측정자 |  | (인) |\n| --- | --- | --- | --- | --- | --- |\n| 방사선관리구역 |  |  |  |  |  |\n| 측정\n장비 | 공간선량측정기 |  | 표면오염감시기 |  |  |\n|  | 제작회사/모델 |  | 제작회사/모델 |  |  |\n|  | 일련번호 |  | 일련번호 |  |  |\n|  | 검교정일자 |  | 검교정일자 |  |  |\n|  | 교정인자 |  | 교정인자 |  |  |\n| 측정\n결과 | 측정지점 | 방사선량률 |  | 표면오염도 |  |\n|  | 1 | μSv/h |  | Bq/cm2 |  |\n|  | 2 | μSv/h |  | Bq/cm2 |  |\n|  | 3 | μSv/h |  | Bq/cm2 |  |\n|  | 4 | μSv/h |  | Bq/cm2 |  |\n|  | B.G | μSv/h |  | Bq/cm2 |  |\n| 측정\n지점 | (측정위치 및 거리는 현장상황에 맞게 적용할 것) |  |  |  |  |",
+  "metadata": {
+    "document_title": "1. 방사선안전관리규정 개정전문",
+    "sourceFile": "1. 방사선안전관리규정 개정전문.pdf",
+    "page": 27,
+    "articleNumber": 28,
+    "articleSub": null,
+    "articleTitle": "기타",
+    "contentType": "table",
+    "md5": "a0007fc76f6af9ca62fec66829e68d31",
+    "page_number": 27,
+    "article_number": "제28조",
+    "article_title": "기타",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

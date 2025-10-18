@@ -7,6 +7,8 @@ import unicodedata
 import uuid
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
+from query_parser import parse_query
+from reranker import rerank
 
 try:
     from langchain.schema import Document as LC_Document
@@ -24,6 +26,7 @@ try:
 except Exception:
     _HAS_RAGAS = False
 
+import pandas as pd               # ✅ 진단용 표출력
 import streamlit as st
 from chains import get_vector_store, get_retreiver_chain, get_conversational_rag
 from langchain_core.messages import HumanMessage, AIMessage
@@ -502,7 +505,11 @@ def second_page():
 
     # 응답 생성 함수
     def get_response(user_input):
-        history_retriever_chain = get_retreiver_chain(vs)
+        # 1) 질의 전처리 → 메타 필터/힌트 (문법 파서)
+        meta_filter, hints = parse_query(user_input)
+        # 2) 리트리버에 필터/Top-K 주입 (표 요청 시 k 조금 늘림)
+        top_k = 7 if hints.get("wants_table") else 5
+        history_retriever_chain = get_retreiver_chain(vs, meta_filter=meta_filter, top_k=top_k)
         conversation_rag_chain = get_conversational_rag(history_retriever_chain)
         response = conversation_rag_chain.invoke(
             {
@@ -514,7 +521,16 @@ def second_page():
         )
         answer = response["answer"]
         contexts = response.get("context", [])
-        return answer, contexts
+
+        # 3) 정밀 리랭킹(코사인+BM25+메타+버전+URI + MMR)
+        try:
+            contexts = rerank(contexts or [], hints, user_input)
+        except Exception:
+            # 리랭킹 실패시 원본 유지(폴백)
+            pass
+
+        # ✅ 진단용 Expander에서 쓰기 위해 meta_filter/hints/top_k도 반환
+        return answer, contexts, meta_filter, hints, top_k
 
     # 사용자 입력
     if user_input := st.chat_input("Type your message here..."):
@@ -522,7 +538,7 @@ def second_page():
 
         with collect_runs() as cb:
             with st.spinner("Thinking..."):
-                raw_answer, contexts = get_response(user_input)
+                raw_answer, contexts, meta_filter, hints, top_k = get_response(user_input)
                 answer = _strip_llm_source_lines(raw_answer)
 
                 # 상위 컨텍스트 선별
@@ -559,6 +575,34 @@ def second_page():
 
                 # 출력
                 st.chat_message("AI").write(answer)
+
+                # ✅🔧 진단용 Expander(Top-K/필터/컨텍스트 메타 미리보기)
+                with st.expander("🔧 검색 설정 (진단용)"):
+                    # parse_query 결과 노출
+                    st.write("**파싱된 메타 필터:**", meta_filter)
+                    st.write("**라우팅 힌트:**", hints)
+                    st.write("**Top-K:**", top_k)
+
+                    def _get_md(d, k, default=None):
+                        m = (d.get("metadata") or {}) if isinstance(d, dict) else getattr(d, "metadata", {}) or {}
+                        return m.get(k, default)
+
+                    if contexts:
+                        rows = []
+                        for c in contexts:
+                            rows.append({
+                                "filename": _get_md(c, "filename"),
+                                "page": _get_md(c, "page"),
+                                "uri": _get_md(c, "uri"),
+                                "articleUri": _get_md(c, "articleUri"),
+                                "versionDate": _get_md(c, "versionDate"),
+                                "program": _get_md(c, "program"),
+                                "cohort": _get_md(c, "cohort"),
+                                "contentType": _get_md(c, "contentType") or _get_md(c, "content_type"),
+                                "score": getattr(c, "score", None) or (c.get("score") if isinstance(c, dict) else None),
+                            })
+                        df = pd.DataFrame(rows)
+                        st.dataframe(df, use_container_width=True)
 
                 with st.container(border=True):
                     st.markdown("#### 🧪 응답 품질 점수 (RAGAS)")

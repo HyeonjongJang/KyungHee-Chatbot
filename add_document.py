@@ -1,6 +1,7 @@
 # add_document.py  — JSON 청크(.json/.jsonl) + 코호트 대응, 백업/병합 일관화
+# Phase 1: 메타데이터 표준화(URI/스키마/정규화) + HTTP URI/소스/MD5 보강 버전
 
-import os, re, shutil, argparse, datetime, math, json
+import os, re, shutil, argparse, datetime, math, json, hashlib
 from pathlib import Path
 from typing import List, Tuple, Optional, Iterable, Union
 
@@ -19,6 +20,154 @@ except Exception:
 from utils import load_docs_from_jsonl, save_docs_to_jsonl
 
 load_dotenv()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1: metadata schema & URI helpers
+# ─────────────────────────────────────────────────────────────────────────────
+SCHEMA_VERSION = "1.0"
+
+PROGRAM_SET = {
+    "UG", "MS", "PHD", "IME_MS", "IME_PHD",  # 필요시 확장
+}
+
+HTTP_URI_BASE = "https://kg.khu.ac.kr/reg"  # 영구 URI 네임스페이스(운영 시 고정 권장)
+
+def _norm_program(v: str | None) -> str | None:
+    if not v:
+        return None
+    x = str(v).strip().upper().replace("-", "_")
+    return x if x in PROGRAM_SET else None
+
+def _norm_cohort(v: str | None) -> str | None:
+    # "2023" → "Cohort_2023"
+    if not v:
+        return None
+    s = "".join(ch for ch in str(v) if ch.isdigit())
+    if len(s) == 4 and s.startswith("20"):
+        return f"Cohort_{s}"
+    return None
+
+def _parse_article_clause(md: dict) -> tuple[int | None, int | None]:
+    """
+    JSON 메타에 article_number / articleNumber / "제N조" 형태가 섞여 있어도 흡수.
+    clause는 없으면 None
+    """
+    def _to_int(x):
+        try:
+            return int(x)
+        except Exception:
+            return None
+
+    a = md.get("articleNumber") or md.get("article_number") or md.get("articleNo") or md.get("article")
+    if isinstance(a, str):
+        # "제15조" → 15
+        m = re.search(r"(\d+)", a)
+        a = m.group(1) if m else a
+    a = _to_int(a)
+
+    c = md.get("clauseNumber") or md.get("clause_no") or md.get("clause")
+    if isinstance(c, str):
+        m = re.search(r"(\d+)", c)
+        c = m.group(1) if m else c
+    c = _to_int(c)
+
+    return a, c
+
+def _infer_content_type(md: dict, page_content: str) -> str:
+    # JSON에서 "content_type: table"이면 table, 아니면 text 기본
+    ct = (md.get("content_type") or md.get("contentType") or "").strip().lower()
+    if ct == "table":
+        return "table"
+    # 간단 휴리스틱: 파이프(|) 테이블 감지 → table
+    if page_content and page_content.count("|") >= 4 and "\n| ---" in page_content:
+        return "table"
+    return "text"
+
+def _build_http_uris(code: str, vdate: str, art: int | None, cl: int | None) -> tuple[str | None, str | None]:
+    """
+    영구 HTTP URI 생성.
+    예: https://kg.khu.ac.kr/reg/AA-2024-09-01#art15 / #art15-cl2
+    """
+    if not (code and vdate and art is not None):
+        return None, None
+    base = f"{HTTP_URI_BASE}/{code}-{vdate}"
+    article_uri = f"{base}#art{art}"
+    clause_uri = f"{article_uri}-cl{cl}" if cl is not None else None
+    return article_uri, clause_uri
+
+def _compute_md5_from_text(text: str) -> str:
+    return hashlib.md5((text or "").encode("utf-8")).hexdigest()
+
+def _attach_uri_and_schema(meta: dict, page_content: str) -> dict:
+    m = dict(meta or {})
+
+    # 0) 소스/재현성 정보
+    # filename -> sourceFile (표준 메타명 고정)
+    if m.get("sourceFile") is None:
+        m["sourceFile"] = m.get("filename") or None
+    # md5 (페이지/본문 텍스트 기준, 재현 가능한 지문)
+    m["md5"] = _compute_md5_from_text(page_content)
+
+    # 1) 기본 스키마 라인업
+    m.setdefault("schema_version", SCHEMA_VERSION)
+    m.setdefault("documentCode", (m.get("document_code") or m.get("code") or "").strip())
+    m.setdefault("versionDate", (m.get("versionDate") or m.get("version_date") or "").strip() or None)
+    # 선택적 기간
+    ef = m.get("effectiveFrom") or m.get("effective_from") or None
+    eu = m.get("effectiveUntil") or m.get("effective_until") or None
+    m["effectiveFrom"] = ef or None
+    m["effectiveUntil"] = eu or None
+
+    # 2) 페이지 정규화
+    page = m.get("page") or m.get("page_number") or m.get("pageNumber")
+    if page is not None:
+        try:
+            m["page"] = int(page)
+        except Exception:
+            m["page"] = page
+    # (선택) 레거시 키 삭제는 유지 보수상 주석 처리
+
+    # 3) 정규형 program/cohort
+    m["program"] = _norm_program(m.get("program"))
+    m["cohort"]  = _norm_cohort(m.get("cohort") or m.get("year") or m.get("student_year"))
+
+    # 4) contentType
+    m["contentType"] = _infer_content_type(m, page_content)
+
+    # 5) article/clause 정규화
+    a, c = _parse_article_clause(m)
+    if a is not None:
+        m["articleNumber"] = a
+    if c is not None:
+        m["clauseNumber"] = c
+    else:
+        m.setdefault("clauseNumber", None)
+
+    # 6) 관계 후보 필드 존재 보장
+    for k in ("overrides", "cites", "hasExceptionFor"):
+        if k not in m or m[k] is None:
+            m[k] = []
+
+    # 7) 식별자: URN + HTTP 영구 URI 동시 부여
+    code = (m.get("documentCode") or "").strip()
+    vdate = (m.get("versionDate") or "").strip()
+    art = m.get("articleNumber")
+    cl  = m.get("clauseNumber")
+
+    # 7-a) URN (기존 방식 유지)
+    if code and vdate and (art is not None):
+        cl_suffix = f":cl{cl}" if (cl is not None) else ""
+        m["uri"] = f"urn:khu:reg:{code}:{vdate}:art{art}{cl_suffix}"
+    else:
+        m.setdefault("uri", None)
+
+    # 7-b) HTTP URI (체크리스트 요구)
+    article_http, clause_http = _build_http_uris(code, vdate, art, cl)
+    # 둘 다 None일 수 있으니 키는 반드시 존재하도록 보장
+    m["articleUri"] = article_http
+    m["clauseUri"]  = clause_http
+
+    return m
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 설정
@@ -69,12 +218,17 @@ def _load_pdf_txt_ipynb(path: Path) -> List[LCDocument]:
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=2048, chunk_overlap=256)
     splits = splitter.split_documents(docs)
-    # 파일명 메타 + Source 접두사 부착
+
+    # 파일명 메타 + Source 접두사 부착 + Phase1 메타 보강
     for d in splits:
         meta = dict(d.metadata or {})
         meta["filename"] = path.name
         meta["category"] = meta.get("category", "")
         d.page_content = _make_source_prefix(path.name) + (d.page_content or "")
+
+        # ▼▼ Phase 1: 메타 보강(URI/스키마/정규화)
+        meta = _attach_uri_and_schema(meta, d.page_content)
+
         d.metadata = meta
     return splits
 
@@ -105,7 +259,9 @@ def _load_json_chunk(path: Path) -> List[LCDocument]:
         # 메타 보강
         meta = dict(md)
         meta["filename"] = filename
-        # 카테고리는 상위에서 부여
+        # ▼▼ Phase 1: 메타 보강(URI/스키마/정규화 + HTTP URI/소스/MD5)
+        meta = _attach_uri_and_schema(meta, page_content)
+
         return _as_document(page_content, meta)
 
     docs: List[LCDocument] = []
@@ -201,12 +357,14 @@ def _process_category(category_slug: str, cohort: Optional[str] = None) -> Tuple
         print(f"[{i}/{len(files)}] 로딩/분할: {f.relative_to(todo_dir)}")
         try:
             docs = _load_path_as_documents(f)
-            # 공통 메타 부여(카테고리/코호트)
+            # 공통 메타 부여(카테고리/코호트) + Phase1 보강 재적용(코호트 정규화 목적)
             for d in docs:
                 meta = dict(d.metadata or {})
                 meta["category"] = category_slug
                 if cohort:
                     meta["cohort"] = cohort
+                # ▼▼ Phase 1: 코호트 주입 후 재보정(정규화/URI 보강 + HTTP URI/소스/MD5)
+                meta = _attach_uri_and_schema(meta, d.page_content)
                 d.metadata = meta
             if docs:
                 print(f"   → 청크 수: {len(docs)}")

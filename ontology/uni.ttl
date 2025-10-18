@@ -1,25 +1,84 @@
-@prefix uni: <http://example.org/uni#> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix :      <http://example.org/uni#> .
+@prefix uni:   <http://example.org/uni#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 
+#################################################################
+# Ontology header
+#################################################################
+
+<http://example.org/uni>
+  a owl:Ontology ;
+  rdfs:label "KyungHee Regulations Ontology (UNI)" ;
+  owl:versionInfo "0.1" ;
+  owl:versionIRI <http://example.org/uni/0.1> .
+
+#################################################################
 # Classes
-uni:Norm a rdfs:Class .
-uni:Article a rdfs:Class .
-uni:Clause a rdfs:Class .
-uni:Version a rdfs:Class .
-uni:Program a rdfs:Class .
-uni:Cohort a rdfs:Class .
-uni:TemporalScope a rdfs:Class .
+#################################################################
 
+uni:Norm            a owl:Class .
+uni:Article         a owl:Class .
+uni:Clause          a owl:Class .
+uni:Version         a owl:Class .
+uni:Program         a owl:Class .
+uni:Cohort          a owl:Class .
+uni:TemporalScope   a owl:Class .
+
+# 예시: Clause ⊑ Norm
+uni:Clause rdfs:subClassOf uni:Norm .
+
+#################################################################
 # Object properties
-uni:overrides a rdf:Property .
-uni:cites a rdf:Property .
-uni:appliesToProgram a rdf:Property .
-uni:appliesToCohort a rdf:Property .
-uni:hasExceptionFor a rdf:Property .
+#################################################################
 
+uni:overrides a owl:ObjectProperty ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Clause .
+
+uni:cites a owl:ObjectProperty ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Clause .
+
+uni:appliesToProgram a owl:ObjectProperty ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Program .
+
+uni:appliesToCohort a owl:ObjectProperty ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Cohort .
+
+uni:hasExceptionFor a owl:ObjectProperty ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Clause .
+
+# (선택) 역관계 선언
+uni:overriddenBy a owl:ObjectProperty ;
+  owl:inverseOf uni:overrides ;
+  rdfs:domain uni:Clause ; rdfs:range uni:Clause .
+
+#################################################################
 # Data properties
-uni:effectiveFrom a rdf:Property .
-uni:effectiveUntil a rdf:Property .
-uni:minCredits a rdf:Property .
+#################################################################
+
+uni:articleUri a owl:DatatypeProperty ;
+  rdfs:domain uni:Clause ; rdfs:range xsd:anyURI .
+
+uni:versionDate a owl:DatatypeProperty ;
+  rdfs:domain uni:Clause ; rdfs:range xsd:date .
+
+uni:effectiveFrom a owl:DatatypeProperty ;
+  rdfs:domain uni:TemporalScope ; rdfs:range xsd:date .
+
+uni:effectiveUntil a owl:DatatypeProperty ;
+  rdfs:domain uni:TemporalScope ; rdfs:range xsd:date .
+
+uni:minCredits a owl:DatatypeProperty ;
+  rdfs:domain uni:Clause ; rdfs:range xsd:integer .
+
+# (선택) contentType, page 등도 모델링 가능
+uni:contentType a owl:DatatypeProperty ;
+  rdfs:domain uni:Clause ; rdfs:range xsd:string .
+
+#################################################################
+# Simple restrictions (옵션)
+#################################################################
+
+# minCredits ≥ 0 같은 제약은 OWL보다는 SHACL에서 다루는 것을 권장

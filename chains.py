@@ -9,19 +9,30 @@ from langchain.chains import create_history_aware_retriever, create_retrieval_ch
 from langchain.chains.combine_documents import create_stuff_documents_chain
 # from langchain_community.retrievers import BM25Retriever
 # from langchain.retrievers import EnsembleRetriever
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 SYSTEM_PROMPT = (
     f"Today's date is {datetime.now().strftime('%Y-%m-%d')}.\n"
-    "You are a Virtual Assistant dedicated solely to providing guidance on the regulations, internal rules, and guidelines of Kyung Hee University.\n"
-    "This assistant retrieves short context snippets from KHU's Regulation Management System.\n"
-    "Each context chunk begins with a 'Source : <filename>' line that indicates its origin.\n"
-    "Do not fabricate or guess source names. You do NOT need to write a 'Source:' section yourself; the application will append the exact sources automatically.\n"
-    "If context is used, focus on answering clearly and completely. Avoid adding extra citation text in your answer.\n"
+    "You are a Virtual Assistant for Kyung Hee University regulations.\n\n"
+    "Priority Rules:\n"
+    "1) When multiple versions exist, prefer the LATEST versionDate unless the user specifies otherwise.\n"
+    "2) Prefer contexts that match the user's metadata intent (program, cohort, article/clause).\n"
+    "3) If effectiveFrom/effectiveUntil appear to conflict with the user's context date, call this out explicitly.\n"
+    "4) (Future) If SPARQL/KG results are provided, those numeric/decision values override text snippets.\n\n"
+    "Each context chunk begins with a 'Source : <filename>' line. Do not fabricate sources.\n"
+    "The UI will append exact source names automatically—do NOT add a separate citation section yourself.\n"
     "Context:\n"
 )
 
+# ── 구조화 출력 포맷(안내용 텍스트) ──────────────────────────────────────────────
+ANSWER_FORMAT = (
+    "**결론:** {final_answer}\n"
+    "**적용 버전:** {version_date} (효력: {effective_from} ~ {effective_until})\n"
+    "**근거:** 제{article_num}조{clause_part} [{uri_part}]\n"
+    "**예외 사항:** {exceptions}\n"
+    "**주의:** {notices}\n"
+)
 
 # ── Vector store loader (category + optional cohort) ─────────────────────────
 def get_vector_store(category_slug: str, cohort: Optional[str] = None) -> FAISS:
@@ -46,15 +57,16 @@ def get_vector_store(category_slug: str, cohort: Optional[str] = None) -> FAISS:
 
 
 # ── Retriever (history-aware) ────────────────────────────────────────────────
-def get_retreiver_chain(vector_store: FAISS):
+def get_retreiver_chain(vector_store: FAISS, meta_filter: Optional[Dict[str, Any]] = None, top_k: int = 5):
     """
     대화 히스토리를 반영해, 사용자 입력을 검색쿼리로 바꿔주는 history-aware retriever 체인.
     """
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-    faiss_retriever = vector_store.as_retriever(
-        search_kwargs={"k": 5},
-    )
+    skw = {"k": int(top_k)}
+    if meta_filter:
+        skw["filter"] = {k: v for k, v in meta_filter.items() if v not in (None, "", [])}
+    faiss_retriever = vector_store.as_retriever(search_kwargs=skw)
     # 필요시 BM25 + Ensemble 활성화:
     # bm25_retriever = BM25Retriever.from_documents(st.session_state.docs)
     # bm25_retriever.k = 2
@@ -63,8 +75,9 @@ def get_retreiver_chain(vector_store: FAISS):
     prompt = ChatPromptTemplate.from_messages([
         MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}"),
-        ("user", "Based on the conversation above, generate a search query that retrieves relevant information. "
-                 "Provide enough context in the query to ensure the correct document is retrieved. Only output the query.")
+        ("user",
+         "Based on the conversation above, generate a search query that retrieves relevant information. "
+         "Provide enough context in the query to ensure the correct document is retrieved. Only output the query.")
     ])
     history_retriever_chain = create_history_aware_retriever(llm, faiss_retriever, prompt)
     return history_retriever_chain
@@ -77,8 +90,21 @@ get_retriever_chain = get_retreiver_chain
 def get_conversational_rag(history_retriever_chain):
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
+    # 답변 프롬프트: 구조화 섹션 지시 + ANSWER_FORMAT 예시 포함
     answer_prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT + "\n\n{context}"),
+        ("system",
+         SYSTEM_PROMPT
+         + "\n\n{context}\n\n"
+         "Return your answer using the following Korean sections. "
+         "If a value is unknown, write '-' and keep the section:\n"
+         "- 결론: 핵심 답을 1~2문장으로.\n"
+         "- 적용 버전: versionDate와 효력 기간(가능하면).\n"
+         "- 근거: “제N조 (제M항)”와 URI(있으면)를 대괄호로.\n"
+         "- 예외 사항: 예외가 있으면 짧게.\n"
+         "- 주의: 버전 충돌·효력기간 이슈가 있으면 짧게.\n\n"
+         "Use this exact format template (fill the braces with values; leave '-' if unknown):\n"
+         + ANSWER_FORMAT
+        ),
         MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}")
     ])

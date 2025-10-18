@@ -1,11 +1,18 @@
 {
-    "text": "| 구분 | 대학원명 | 석사과정 | 통합과정 | 박사과정 |\n| --- | --- | --- | --- | --- |\n| 일반대학원 | 일반대학원 | 4개학기 | 6개학기 | 4개학기 |\n| 전문대학원 | 동서의학대학원 | 2개학기 | 4개학기 | 2개학기 |\n|  | 국제대학원 | 2개학기 | - | 2개학기 |\n|  | 체육대학원 | 4개학기 | - | 4개학기 |\n",
-    "metadata": {
-        "document_title": "경희대학교대학원학칙 개정 전문_2025.3.1",
-        "content_type": "table",
-        "page_number": 3,
-        "text_as_html": null,
-        "article_number": "제16조",
-        "article_title": "휴학"
-    }
+  "text": "| 구분 | 대학원명 | 석사과정 | 통합과정 | 박사과정 |\n| --- | --- | --- | --- | --- |\n| 일반대학원 | 일반대학원 | 4개학기 | 6개학기 | 4개학기 |\n| 전문대학원 | 동서의학대학원 | 2개학기 | 4개학기 | 2개학기 |\n|  | 국제대학원 | 2개학기 | - | 2개학기 |\n|  | 체육대학원 | 4개학기 | - | 4개학기 |",
+  "metadata": {
+    "document_title": "경희대학교대학원학칙 개정 전문_2025.3.1",
+    "sourceFile": "경희대학교대학원학칙 개정 전문_2025.3.1.pdf",
+    "page": 3,
+    "articleNumber": 16,
+    "articleSub": null,
+    "articleTitle": "휴학",
+    "contentType": "table",
+    "md5": "a14def55e93557e988b37f81fb24484f",
+    "page_number": 3,
+    "article_number": "제16조",
+    "article_title": "휴학",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

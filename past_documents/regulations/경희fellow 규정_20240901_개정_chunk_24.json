@@ -1,11 +1,18 @@
 {
-    "text": "| 추천구분 | [ 단과대학(원) 추천 ] | None | None | None |\n| --- | --- | --- | --- | --- |\n| 피추천\n대 상 | 성 명 |  | 직 급 |  |\n|  | 소 속 |  |  |  |\n| 추천사유 | ※ 지면 부족 시 별지 사용 가능 |  |  |  |\n",
-    "metadata": {
-        "document_title": "경희fellow 규정_20240901_개정",
-        "content_type": "table",
-        "page_number": 12,
-        "text_as_html": null,
-        "article_number": "제10조",
-        "article_title": "보칙"
-    }
+  "text": "| 추천구분 | [ 단과대학(원) 추천 ] |  |  |  |\n| --- | --- | --- | --- | --- |\n| 피추천\n대 상 | 성 명 |  | 직 급 |  |\n|  | 소 속 |  |  |  |\n| 추천사유 | ※ 지면 부족 시 별지 사용 가능 |  |  |  |",
+  "metadata": {
+    "document_title": "경희fellow 규정_20240901_개정",
+    "sourceFile": "경희fellow 규정_20240901_개정.pdf",
+    "page": 12,
+    "articleNumber": 10,
+    "articleSub": null,
+    "articleTitle": "보칙",
+    "contentType": "table",
+    "md5": "43fddd6fe308a1bbf5f2d9c5fab4483c",
+    "page_number": 12,
+    "article_number": "제10조",
+    "article_title": "보칙",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

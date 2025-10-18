@@ -1,11 +1,18 @@
 {
-    "text": "|  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |\n",
-    "metadata": {
-        "document_title": "1. 방사선안전관리규정 개정전문",
-        "content_type": "table",
-        "page_number": 25,
-        "text_as_html": null,
-        "article_number": "제28조",
-        "article_title": "기타"
-    }
+  "text": "|  |  |  |  |  |  |  |  |  |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |",
+  "metadata": {
+    "document_title": "1. 방사선안전관리규정 개정전문",
+    "sourceFile": "1. 방사선안전관리규정 개정전문.pdf",
+    "page": 25,
+    "articleNumber": 28,
+    "articleSub": null,
+    "articleTitle": "기타",
+    "contentType": "table",
+    "md5": "f4cbdfc3b920a4c7149b739a05c34d22",
+    "page_number": 25,
+    "article_number": "제28조",
+    "article_title": "기타",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

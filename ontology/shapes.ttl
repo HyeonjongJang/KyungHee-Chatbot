@@ -1,17 +1,140 @@
-@prefix sh: <http://www.w3.org/ns/shacl#> .
-@prefix uni: <http://example.org/uni#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix uni:  <http://example.org/uni#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
-# 예: 효력기간의 from<=until (확장 예정)
-uni:TemporalScopeShape a sh:NodeShape ;
+#################################################################
+# 0) 공통: 타입/필수 키 검증
+#################################################################
+
+# Clause에는 articleUri, versionDate, contentType 등이 필요
+uni:ClauseShape
+  a sh:NodeShape ;
+  sh:targetClass uni:Clause ;
+
+  # articleUri (필수, anyURI)
+  sh:property [
+    sh:path uni:articleUri ;
+    sh:datatype xsd:anyURI ;
+    sh:minCount 1 ;
+    sh:message "Clause must have articleUri (http(s) URI)." ;
+  ] ;
+
+  # versionDate (필수, date)
+  sh:property [
+    sh:path uni:versionDate ;
+    sh:datatype xsd:date ;
+    sh:minCount 1 ;
+    sh:message "Clause must have versionDate (YYYY-MM-DD)." ;
+  ] ;
+
+  # contentType (선택: 정규값 제한. 필요 시 주석 해제)
+  # sh:property [
+  #   sh:path uni:contentType ;
+  #   sh:in ("text" "table" "annex" "appendix") ;
+  #   sh:minCount 0 ;
+  #   sh:message "contentType must be one of {text, table, annex, appendix} if present." ;
+  # ] ;
+
+  # appliesToProgram/Cohort 타입 검증(있으면 해당 클래스여야 함)
+  sh:property [
+    sh:path uni:appliesToProgram ;
+    sh:class uni:Program ;
+    sh:minCount 0 ;
+  ] ;
+  sh:property [
+    sh:path uni:appliesToCohort ;
+    sh:class uni:Cohort ;
+    sh:minCount 0 ;
+  ] .
+
+#################################################################
+# 1) 효력기간 규칙(TemporalScope): from ≤ until (둘 다 있으면)
+#################################################################
+
+uni:TemporalScopeShape
+  a sh:NodeShape ;
   sh:targetClass uni:TemporalScope ;
+
   sh:property [
     sh:path uni:effectiveFrom ;
     sh:datatype xsd:date ;
-    sh:minCount 0
+    sh:minCount 0 ;
   ] ;
   sh:property [
     sh:path uni:effectiveUntil ;
     sh:datatype xsd:date ;
-    sh:minCount 0
+    sh:minCount 0 ;
+  ] ;
+
+  # SPARQL 제약: from/until이 둘 다 존재하면 from ≤ until
+  sh:sparql [
+    a sh:SPARQLConstraint ;
+    sh:message "effectiveFrom must be <= effectiveUntil when both are present." ;
+    sh:select """
+      PREFIX uni: <http://example.org/uni#>
+      SELECT $this
+      WHERE {
+        $this uni:effectiveFrom ?from ;
+              uni:effectiveUntil ?until .
+        FILTER ( ?from > ?until )
+      }
+    """ ;
+  ] .
+
+#################################################################
+# 2) 필수 속성 누락 금지(추가 키들)
+#################################################################
+
+# 필요하면 Article에도 필수 속성 지정(예: articleUri)
+uni:ArticleShape
+  a sh:NodeShape ;
+  sh:targetClass uni:Article ;
+  sh:property [
+    sh:path uni:articleUri ;
+    sh:datatype xsd:anyURI ;
+    sh:minCount 1 ;
+    sh:message "Article must have articleUri." ;
+  ] .
+
+#################################################################
+# 3) precedence/override 규칙 (단순화 버전)
+#################################################################
+# "하위가 상위를 덮을 때 overrides 요구"를 쉬운 형태로 표현:
+# 같은 program/cohort 범위를 공유하고, versionDate가 더 최신인 Clause는
+# 같은 Article 범위의 이전 Clause를 가리키는 overrides를 최소 1개 가져야 한다(권고).
+
+uni:ClauseOverrideShape
+  a sh:NodeShape ;
+  sh:targetClass uni:Clause ;
+
+  sh:sparql [
+    a sh:SPARQLConstraint ;
+    sh:severity sh:Warning ;
+    sh:message "Newer Clause should specify which prior Clause(s) it overrides for the same scope." ;
+    sh:select """
+      PREFIX uni: <http://example.org/uni#>
+      SELECT $this
+      WHERE {
+        $this uni:versionDate ?vd .
+        # 같은 Program/Cohort 범위(있다면) 공유하는 더 이전 Clause가 있을 때
+        OPTIONAL { $this uni:appliesToProgram ?p . }
+        OPTIONAL { $this uni:appliesToCohort ?c . }
+
+        # 과거 조항 후보
+        ?older a uni:Clause ;
+               uni:versionDate ?vd2 .
+        FILTER (?vd2 < ?vd)
+
+        # scope 매칭: program/cohort가 있으면 일치해야 한다
+        FILTER (
+          ( !BOUND(?p) || EXISTS { ?older uni:appliesToProgram ?p } ) &&
+          ( !BOUND(?c) || EXISTS { ?older uni:appliesToCohort ?c } )
+        )
+
+        # overrides가 하나도 없으면 경고
+        FILTER NOT EXISTS { $this uni:overrides ?older }
+      }
+    """ ;
   ] .
