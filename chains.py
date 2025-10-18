@@ -25,13 +25,13 @@ SYSTEM_PROMPT = (
     "Context:\n"
 )
 
-# ── 구조화 출력 포맷(안내용 텍스트) ──────────────────────────────────────────────
+# ── 구조화 출력 포맷(LLM에게 보여줄 예시; 중괄호는 이스케이프) ─────────────────────
 ANSWER_FORMAT = (
-    "**결론:** {final_answer}\n"
-    "**적용 버전:** {version_date} (효력: {effective_from} ~ {effective_until})\n"
-    "**근거:** 제{article_num}조{clause_part} [{uri_part}]\n"
-    "**예외 사항:** {exceptions}\n"
-    "**주의:** {notices}\n"
+    "**결론:** {{final_answer}}\n"
+    "**적용 버전:** {{version_date}} (효력: {{effective_from}} ~ {{effective_until}})\n"
+    "**근거:** 제{{article_num}}조{{clause_part}} [{{uri_part}}]\n"
+    "**예외 사항:** {{exceptions}}\n"
+    "**주의:** {{notices}}\n"
 )
 
 # ── Vector store loader (category + optional cohort) ─────────────────────────
@@ -90,7 +90,7 @@ get_retriever_chain = get_retreiver_chain
 def get_conversational_rag(history_retriever_chain):
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-    # 답변 프롬프트: 구조화 섹션 지시 + ANSWER_FORMAT 예시 포함
+    # 답변 프롬프트: 구조화 섹션 지시 + ANSWER_FORMAT 예시 포함(중괄호 이스케이프)
     answer_prompt = ChatPromptTemplate.from_messages([
         ("system",
          SYSTEM_PROMPT
