@@ -1,27 +1,46 @@
 # query_parser.py
 from __future__ import annotations
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Tuple, List
 import re
-from lark import Lark, Transformer, Token
+
+from lark import Lark, Transformer, v_args
 
 GRAMMAR = r"""
 ?start: query
-?query: (range | item)+
+?query: piece+
 
-?range: article_range | page_range
-article_range: "제"? INT "조" ("의" INT)? ("~" "제"? INT "조" ("의" INT)?)?
-page_range: ("p."| "페이지") INT ("-" INT)?
+?piece: article_range
+      | page_range
+      | article
+      | clause
+      | table
+      | annex
+      | appendix
+      | cohort
+      | program
+      | date
+      | WORD      -> kw
 
-?item: article | clause | table | annex | appendix | cohort | program | date | keyword
-article: "제"? INT "조" ("의" INT)?
-clause: INT "항" (("및" | "·" | "," ) INT "항")*
-table: /(표|table)/i
-annex: /(부칙)/i
-appendix: /(별표|별지)/i
-cohort: /(20\d{2})\s*학?번?/
-program: /(IME|석사|박사|학부|대학원|MS|PHD|UG)/i
-date: /(시행일|기준일|effective|since|after|이후|부터)\s*(\d{4}-\d{2}-\d{2})/i
-keyword: /[^\s]+/  -> kw
+# ----- Ranges (explicit separator required) -----
+article_range: ART RANGE ART                     -> article_range
+page_range   : (P|PAGE) INT (RANGE INT)?         -> page_range
+
+# ----- Singles -----
+article : ART                                    -> article
+clause  : INT "항" (("및" | "·" | ",") INT "항")*  -> clause
+table   : /(표|table)/i                          -> table
+annex   : /(부칙)/i                              -> annex
+appendix: /(별표|별지)/i                          -> appendix
+cohort  : /(20\d{2})\s*학?번?\b|\b\d{2}\s*학?번?\b/i -> cohort
+program : /(IME|석사|박사|학부|대학원|MS|PHD|UG)/i -> program
+date    : /(시행일|기준일|effective|since|after|이후|부터)\s*(\d{4}-\d{2}-\d{2})/i -> date
+
+# ----- Tokens -----
+RANGE: /(~|–|-)+/
+ART  : /제?\s*\d{1,3}\s*조(?:\s*의\s*\d{1,2})?/
+P    : /p\./i
+PAGE : /페이지/i
+WORD : /[^\s]+/
 
 %import common.INT
 %import common.WS
@@ -29,86 +48,128 @@ keyword: /[^\s]+/  -> kw
 """
 
 PROG_MAP = {
-    "IME": "IME_MS", "MS": "MS", "석사": "MS",
-    "박사": "PHD", "PHD": "PHD", "학부": "UG", "대학원": "GRAD"
+    "IME": "IME_MS",
+    "MS": "MS",
+    "석사": "MS",
+    "박사": "PHD",
+    "PHD": "PHD",
+    "학부": "UG",
+    "UG": "UG",
+    "대학원": "GRAD",
 }
 
+@v_args(inline=True)
 class QTransform(Transformer):
     def __init__(self):
-        self.meta = {}       # articleNumber, clauseNumber(s), page(s), program, cohort, ...
-        self.hints = {}      # wants_table, wants_annex, wants_appendix, refDate, ranges, ...
+        self.meta: Dict[str, Any] = {}
+        self.hints: Dict[str, Any] = {}
         self.keywords: List[str] = []
 
-    def article(self, items):
-        # 제15조, 제15조의2
-        nums = [int(t) for t in items if isinstance(t, Token) and t.type=="INT"]
-        base = nums[0]; sub = nums[1] if len(nums) > 1 else None
-        self.meta["articleNumber"] = base
-        if sub is not None:
-            self.meta["articleSub"] = sub
+    def _parse_art(self, text: str):
+        m = re.search(r"\d{1,3}", text)
+        if m:
+            self.meta["articleNumber"] = int(m.group(0))
+        m2 = re.search(r"의\s*(\d{1,2})", text)
+        if m2:
+            self.meta["clauseNumber"] = int(m2.group(1))
+
+    def article(self, tok):
+        self._parse_art(str(tok))
         return None
 
-    def clause(self, items):
-        # 2항, 2항 및 3항
-        ints = [int(t) for t in items if isinstance(t, Token) and t.type=="INT"]
-        # 주요 항 하나와 부가 항목들
-        self.meta["clauseNumbers"] = list(sorted(set(ints)))
+    def clause(self, *items):
+        ints = [int(x) for x in items if hasattr(x, "type") and x.type == "INT"]
         if ints:
-            self.meta["clauseNumber"] = ints[0]
+            self.meta["clauseNumbers"] = sorted(set(ints))
+            self.meta.setdefault("clauseNumber", ints[0])
         return None
 
-    def article_range(self, items):
-        # 제15조 ~ 제17조, 제15조의2 ~ 제17조의1
-        ints = [int(t) for t in items if isinstance(t, Token) and t.type=="INT"]
-        if len(ints) >= 2:
-            self.hints.setdefault("articleRanges", []).append((ints[0], ints[-1]))
+    def article_range(self, a1, _sep, a2):
+        def _to_num(s: str) -> int:
+            m = re.search(r"\d{1,3}", s)
+            return int(m.group(0)) if m else None
+        left = _to_num(str(a1))
+        right = _to_num(str(a2))
+        if left is not None and right is not None:
+            self.hints.setdefault("articleRanges", []).append((left, right))
+            self.meta.setdefault("articleNumber", left)
+        return None
+
+    def page_range(self, ptoken, first, maybe_range_int=None):
+        a = int(first)
+        if maybe_range_int is None:
+            self.meta["page"] = a
         else:
-            # 단일만 있어도 range 컨테이너에 적재(후처리 통일)
-            self.hints.setdefault("articleRanges", []).append((ints[0], ints[0]))
+            if hasattr(maybe_range_int, "type") and maybe_range_int.type == "INT":
+                b = int(maybe_range_int)
+            else:
+                s = str(maybe_range_int)
+                m = re.search(r"\d+", s)
+                b = int(m.group(0)) if m else a
+            self.hints.setdefault("pageRanges", []).append((a, b))
         return None
 
-    def page_range(self, items):
-        ints = [int(t) for t in items if isinstance(t, Token) and t.type=="INT"]
-        if len(ints) == 1:
-            self.meta["page"] = ints[0]
-        elif len(ints) >= 2:
-            self.hints.setdefault("pageRanges", []).append((ints[0], ints[1]))
+    def table(self, *_):
+        self.meta["contentType"] = "table"
+        self.hints["wants_table"] = True
         return None
 
-    def table(self, _): self.hints["wants_table"] = True
-    def annex(self, _): self.hints["wants_annex"] = True
-    def appendix(self, _): self.hints["wants_appendix"] = True
+    def annex(self, *_):
+        self.hints["wants_annex"] = True
+        return None
 
-    def cohort(self, items):
-        # 2023학번
-        m = re.search(r"(20\d{2})", str(items[0]))
-        if m: self.meta["cohort"] = f"Cohort_{m.group(1)}"
+    def appendix(self, *_):
+        self.hints["wants_appendix"] = True
+        return None
 
-    def program(self, items):
-        s = str(items[0]).upper()
-        for k,v in PROG_MAP.items():
-            if k in s or s==k:
-                self.meta["program"] = v; break
+    def cohort(self, tok):
+        s = str(tok)
+        m4 = re.search(r"(20\d{2})", s)
+        m2 = re.search(r"\b(\d{2})\b", s) if not m4 else None
+        year = None
+        if m4:
+            year = m4.group(1)
+        elif m2:
+            year = f"20{int(m2.group(1)):02d}"
+        if year:
+            self.meta["cohort"] = f"Cohort_{year}"
+        return None
 
-    def date(self, items):
-        s = str(items[0])
+    def program(self, tok):
+        s = str(tok).upper()
+        for k, v in PROG_MAP.items():
+            if k in s or s == k:
+                self.meta["program"] = v
+                break
+        return None
+
+    def date(self, tok):
+        s = str(tok)
         m = re.search(r"(\d{4}-\d{2}-\d{2})", s)
-        if m: self.hints["refDate"] = m.group(1)
+        if m:
+            self.hints["refDate"] = m.group(1)
+        return None
 
-    def kw(self, items):
-        self.keywords.append(str(items[0]))
+    def kw(self, tok):
+        self.keywords.append(str(tok))
+        return None
 
     def query(self, _):
-        # 최종 후처리: clauseNumbers 단수화
         if "clauseNumbers" in self.meta and "clauseNumber" not in self.meta:
             self.meta["clauseNumber"] = self.meta["clauseNumbers"][0]
         self.hints["keywords"] = self.keywords
         return {"meta": self.meta, "hints": self.hints}
 
-_parser = Lark(GRAMMAR, parser="lalr")
+# Earley parser: robust against ambiguity
+_parser = Lark(GRAMMAR, parser="earley", lexer="dynamic_complete")
 
 def parse_query(text: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    tree = _parser.parse(text or "")
-    tx = QTransform()
-    res = tx.transform(tree)          # <- 매 호출마다 새 Transformer
-    return res["meta"], res["hints"]
+    try:
+        tree = _parser.parse(text or "")
+        tx = QTransform()
+        res = tx.transform(tree)
+        return res["meta"], res["hints"]
+    except Exception:
+        # Safe fallback: regex router
+        from query_router import query_router
+        return query_router(text)
