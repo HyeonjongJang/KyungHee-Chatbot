@@ -1,11 +1,18 @@
 {
-    "text": "| 관리번호 | 일시 | 품명 | 핵종 | 방사능량 | 취득처 | 사용자 | 장소 | 방사선\n안전관리자\n(인) | 비고 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n",
-    "metadata": {
-        "document_title": "1. 방사선안전관리규정 개정전문",
-        "content_type": "table",
-        "page_number": 18,
-        "text_as_html": null,
-        "article_number": "제28조",
-        "article_title": "기타"
-    }
+  "text": "| 관리번호 | 일시 | 품명 | 핵종 | 방사능량 | 취득처 | 사용자 | 장소 | 방사선\n안전관리자\n(인) | 비고 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |",
+  "metadata": {
+    "document_title": "1. 방사선안전관리규정 개정전문",
+    "sourceFile": "1. 방사선안전관리규정 개정전문.pdf",
+    "page": 18,
+    "articleNumber": 28,
+    "articleSub": null,
+    "articleTitle": "기타",
+    "contentType": "table",
+    "md5": "533cddecdf4e4d95becdeea371e34ed3",
+    "page_number": 18,
+    "article_number": "제28조",
+    "article_title": "기타",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

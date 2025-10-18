@@ -1,11 +1,18 @@
 {
-    "text": "|  | None | None | None |\n| --- | --- | --- | --- |\n|  | □해당 없음 |  |  |\n|  |  | IRB 승인기관 및 |  |\n|  |  |  |  |\n|  |  | 승인번호 |  |\n|  |  |  |  |\n|  |  |  |  |\n|  |  | Source |  |\n|  |  |  |  |\n| 해당 여부 |  |  |  |\n|  |  | Species of recipient |  |\n|  | □해당 |  |  |\n|  |  |  |  |\n|  |  |  | □위해 없음 |\n|  |  | 위해도 유무 및 정도 | □사람→동물 간 전염 가능( ) |\n|  |  | (연구자 혹은 | □동물→동물 전염 가능( ) |\n|  |  | 실험동물에게) | □생물 유해 물질이 동물에서 배출될 가능( ) |\n|  |  |  | □배출 경로( ) |\n|  |  |  |  |\n",
-    "metadata": {
-        "document_title": "경희대학교동물실험윤리위원회규정_20201124_개정",
-        "content_type": "table",
-        "page_number": 14,
-        "text_as_html": null,
-        "article_number": "제3조",
-        "article_title": "윤리위원회 구성에 관한 경과조치"
-    }
+  "text": "|  |  |  |  |\n| --- | --- | --- | --- |\n|  | □해당 없음 |  |  |\n|  |  | IRB 승인기관 및 |  |\n|  |  |  |  |\n|  |  | 승인번호 |  |\n|  |  |  |  |\n|  |  |  |  |\n|  |  | Source |  |\n|  |  |  |  |\n| 해당 여부 |  |  |  |\n|  |  | Species of recipient |  |\n|  | □해당 |  |  |\n|  |  |  |  |\n|  |  |  | □위해 없음 |\n|  |  | 위해도 유무 및 정도 | □사람→동물 간 전염 가능( ) |\n|  |  | (연구자 혹은 | □동물→동물 전염 가능( ) |\n|  |  | 실험동물에게) | □생물 유해 물질이 동물에서 배출될 가능( ) |\n|  |  |  | □배출 경로( ) |\n|  |  |  |  |",
+  "metadata": {
+    "document_title": "경희대학교동물실험윤리위원회규정_20201124_개정",
+    "sourceFile": "경희대학교동물실험윤리위원회규정_20201124_개정.pdf",
+    "page": 14,
+    "articleNumber": 3,
+    "articleSub": null,
+    "articleTitle": "윤리위원회 구성에 관한 경과조치",
+    "contentType": "table",
+    "md5": "c795dfe32daac1790528ba485211e2f6",
+    "page_number": 14,
+    "article_number": "제3조",
+    "article_title": "윤리위원회 구성에 관한 경과조치",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

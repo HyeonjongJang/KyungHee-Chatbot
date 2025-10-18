@@ -1,11 +1,18 @@
 {
-    "text": "| 등 급 | 평 점 |\n| --- | --- |\n",
-    "metadata": {
-        "document_title": "경희대학교학칙_개정 전문 2025.04.30.",
-        "content_type": "table",
-        "page_number": 9,
-        "text_as_html": null,
-        "article_number": "제46조",
-        "article_title": "성적"
-    }
+  "text": "| 등 급 | 평 점 |\n| --- | --- |",
+  "metadata": {
+    "document_title": "경희대학교학칙_개정 전문 2025.04.30.",
+    "sourceFile": "경희대학교학칙_개정 전문 2025.04.30..pdf",
+    "page": 9,
+    "articleNumber": 46,
+    "articleSub": null,
+    "articleTitle": "성적",
+    "contentType": "table",
+    "md5": "89f37a3413697e007f58a8610240bb7c",
+    "page_number": 9,
+    "article_number": "제46조",
+    "article_title": "성적",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

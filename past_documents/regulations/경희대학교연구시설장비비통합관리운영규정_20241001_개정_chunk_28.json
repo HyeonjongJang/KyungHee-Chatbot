@@ -1,11 +1,18 @@
 {
-    "text": "|  |  |  |  |\n| --- | --- | --- | --- |\n| 계정번호 |  | 계정책임자 |  |\n|  |  |  |  |\n| 연구시설·장비 자산번호 |  | 연구시설·장비 자산명 |  |\n| (Info21) |  | (Info21) |  |\n| 연구시설·장비 |  |  | □ 국가R&D사업\n□ 국가R&D사업 외비R&D |\n|  |  | 연구시설·장비 구축재원 |  |\n| 등록번호(NFEC번호) |  |  |  |\n|  |  |  |  |\n",
-    "metadata": {
-        "document_title": "경희대학교연구시설장비비통합관리운영규정_20241001_개정",
-        "content_type": "table",
-        "page_number": 11,
-        "text_as_html": null,
-        "article_number": "제76조",
-        "article_title": "통합 연구시설·장비비의 계상"
-    }
+  "text": "|  |  |  |  |\n| --- | --- | --- | --- |\n| 계정번호 |  | 계정책임자 |  |\n|  |  |  |  |\n| 연구시설·장비 자산번호 |  | 연구시설·장비 자산명 |  |\n| (Info21) |  | (Info21) |  |\n| 연구시설·장비 |  |  | □ 국가R&D사업\n□ 국가R&D사업 외비R&D |\n|  |  | 연구시설·장비 구축재원 |  |\n| 등록번호(NFEC번호) |  |  |  |\n|  |  |  |  |",
+  "metadata": {
+    "document_title": "경희대학교연구시설장비비통합관리운영규정_20241001_개정",
+    "sourceFile": "경희대학교연구시설장비비통합관리운영규정_20241001_개정.pdf",
+    "page": 11,
+    "articleNumber": 76,
+    "articleSub": null,
+    "articleTitle": "통합 연구시설·장비비의 계상",
+    "contentType": "table",
+    "md5": "ea24cd739cf0e4d2298ed5c0e7c038fb",
+    "page_number": 11,
+    "article_number": "제76조",
+    "article_title": "통합 연구시설·장비비의 계상",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

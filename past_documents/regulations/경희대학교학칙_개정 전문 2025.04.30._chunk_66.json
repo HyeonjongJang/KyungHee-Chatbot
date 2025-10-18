@@ -1,11 +1,18 @@
 {
-    "text": "| 학년 | 전 학과/전공\n(단, 의약학계열, 건축학과 제외) | 의약학계열 | 건축학과 |\n| --- | --- | --- | --- |\n| 1학년 | 졸업학점의 1/4 이상 | 별도로 정함 | 33 |\n| 2학년 | 졸업학점의 2/4 이상 |  | 66 |\n| 3학년 | 졸업학점의 3/4 이상 |  | 99 |\n| 4학년 | 졸업학점의 4/4 이상 |  | 132 |\n| 5학년 | - | - | 165 |\n",
-    "metadata": {
-        "document_title": "경희대학교학칙_개정 전문 2025.04.30.",
-        "content_type": "table",
-        "page_number": 11,
-        "text_as_html": null,
-        "article_number": "제56조",
-        "article_title": "수료학점"
-    }
+  "text": "| 학년 | 전 학과/전공\n(단, 의약학계열, 건축학과 제외) | 의약학계열 | 건축학과 |\n| --- | --- | --- | --- |\n| 1학년 | 졸업학점의 1/4 이상 | 별도로 정함 | 33 |\n| 2학년 | 졸업학점의 2/4 이상 |  | 66 |\n| 3학년 | 졸업학점의 3/4 이상 |  | 99 |\n| 4학년 | 졸업학점의 4/4 이상 |  | 132 |\n| 5학년 | - | - | 165 |",
+  "metadata": {
+    "document_title": "경희대학교학칙_개정 전문 2025.04.30.",
+    "sourceFile": "경희대학교학칙_개정 전문 2025.04.30..pdf",
+    "page": 11,
+    "articleNumber": 56,
+    "articleSub": null,
+    "articleTitle": "수료학점",
+    "contentType": "table",
+    "md5": "88873948107f6bf6435487a7e0396b38",
+    "page_number": 11,
+    "article_number": "제56조",
+    "article_title": "수료학점",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }

@@ -1,11 +1,18 @@
 {
-    "text": "|  |  | None | None |\n| --- | --- | --- | --- |\n| 신청제목 |  |  |  |\n|  |  |  |  |\n|  |  |  |  |\n| 통합관리계정번호 |  | 계정책임자 |  |\n|  |  |  |  |\n|  |  |  |  |\n| 적립한도 |  | 한도잔액 |  |\n|  |  |  |  |\n",
-    "metadata": {
-        "document_title": "경희대학교연구시설장비비통합관리운영규정_20241001_개정",
-        "content_type": "table",
-        "page_number": 13,
-        "text_as_html": null,
-        "article_number": "제76조",
-        "article_title": "통합 연구시설·장비비의 계상"
-    }
+  "text": "|  |  |  |  |\n| --- | --- | --- | --- |\n| 신청제목 |  |  |  |\n|  |  |  |  |\n|  |  |  |  |\n| 통합관리계정번호 |  | 계정책임자 |  |\n|  |  |  |  |\n|  |  |  |  |\n| 적립한도 |  | 한도잔액 |  |\n|  |  |  |  |",
+  "metadata": {
+    "document_title": "경희대학교연구시설장비비통합관리운영규정_20241001_개정",
+    "sourceFile": "경희대학교연구시설장비비통합관리운영규정_20241001_개정.pdf",
+    "page": 13,
+    "articleNumber": 76,
+    "articleSub": null,
+    "articleTitle": "통합 연구시설·장비비의 계상",
+    "contentType": "table",
+    "md5": "26a91965e7636a14e4c3436b52faa00b",
+    "page_number": 13,
+    "article_number": "제76조",
+    "article_title": "통합 연구시설·장비비의 계상",
+    "content_type": "table",
+    "text_as_html": null
+  }
 }
