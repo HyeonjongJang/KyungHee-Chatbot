@@ -7,7 +7,10 @@ import unicodedata
 import uuid
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
-from query_parser import parse_query
+try:
+    from query_parser import parse_query
+except Exception:
+    from query_router import query_router as parse_query
 from reranker import rerank
 
 try:
