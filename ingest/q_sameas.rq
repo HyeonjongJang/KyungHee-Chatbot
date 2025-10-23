@@ -1,0 +1,1 @@
+SELECT ?x ?y WHERE { GRAPH <http://kg.khu.ac.kr/graph/regulations> { ?x <http://www.w3.org/2002/07/owl#sameAs> ?y } } LIMIT 10

@@ -1,0 +1,1 @@
+SELECT (COUNT(?s) AS ?withPage) WHERE { GRAPH <http://kg.khu.ac.kr/graph/regulations> { ?s a <https://kg.khu.ac.kr/uni#Clause> ; <https://kg.khu.ac.kr/uni#page> ?p . } }
