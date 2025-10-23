@@ -6,6 +6,10 @@ __pycache__
 backup/
 mp3/
 past/
+IMPLEMENTATION_STATUS.md
+OPERATIONAL_CHECKLIST.md
+todo.txt
+todo2.txt
 student_profile/
 ingest/out.ttl
 ingest/meta.jsonl
