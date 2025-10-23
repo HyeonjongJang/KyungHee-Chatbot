@@ -1,0 +1,1 @@
+SELECT (COUNT(?s) AS ?withLabel) WHERE { GRAPH <http://kg.khu.ac.kr/graph/regulations> { ?s a <https://kg.khu.ac.kr/uni#Clause> ; <http://www.w3.org/2000/01/rdf-schema#label> ?l . } }
